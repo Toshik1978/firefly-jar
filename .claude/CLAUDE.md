@@ -1,0 +1,157 @@
+# firefly-jar: Agent Guide
+
+This guide is for an agent working *on* this repository, not for a user of `firefly-jar`.
+
+`firefly-jar` is a one-shot Go CLI that cron runs on a Linux server. It fetches recent bank transactions
+through a bank-data provider (Enable Banking), compares them with a self-hosted Firefly III instance, and
+sends a reminder digest (Telegram, email) listing the bank transactions nobody entered. It is a **reminder,
+not an importer**: the owner enters every transaction by hand.
+
+## Sources of truth
+
+| To understand… | Read |
+|---|---|
+| Non-negotiable principles and governance | [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) |
+| What the feature must do | [`specs/001-missing-tx-reminder/spec.md`](../specs/001-missing-tx-reminder/spec.md) |
+| How it is built, package layout | [`specs/001-missing-tx-reminder/plan.md`](../specs/001-missing-tx-reminder/plan.md) |
+| Why each technical decision was made | [`specs/001-missing-tx-reminder/research.md`](../specs/001-missing-tx-reminder/research.md) |
+| Domain types, matching algorithm, exit rules | [`specs/001-missing-tx-reminder/data-model.md`](../specs/001-missing-tx-reminder/data-model.md) |
+| CLI, config, digest and state formats | [`specs/001-missing-tx-reminder/contracts/`](../specs/001-missing-tx-reminder/contracts/) |
+| End-to-end validation and failure drills | [`specs/001-missing-tx-reminder/quickstart.md`](../specs/001-missing-tx-reminder/quickstart.md) |
+
+The constitution wins every conflict. If a change needs to break it, stop and ask. Do not work around it.
+
+## Invariants (enforced by tests; out of scope to relax)
+
+1. **Read-only against Firefly III.** The Firefly client exposes list methods only. Its transport rejects every
+   method except `GET`/`HEAD` before the request leaves the process, and a test proves that
+   `POST`/`PUT`/`PATCH`/`DELETE` never reach the server. No feature may create, edit or delete Firefly III
+   data, including "helpful" auto-add or one-click import.
+2. **Read-only at the bank.** Account-information consent only. No payment endpoints, and no `Psu-*` headers
+   (the tool runs unattended and must not claim otherwise).
+3. **Nothing is dropped silently.** Every bank transaction in the window ends up matched, missing,
+   deduplicated, void, or on an unchecked account. The reconcile tests assert that invariant. A partial run
+   never exits 0 or 1.
+4. **Quiet when clean.** A `check` that exits 0 or 1 writes nothing to stdout or stderr. Only WARN and above
+   reach stderr, because cron mails any output. The full log goes to the configured log file.
+5. **No scheduler, no daemon, no HTTP server.** One invocation is one run. Cron does the scheduling.
+
+## The gate
+
+`task check` runs `format:check`, then `lint`, then `test`, and must exit 0 before every commit. CI runs the
+same checks.
+
+| Task | Does |
+|---|---|
+| `task setup` | `mise install` (pinned Go, golangci-lint, git-cliff), `go mod download` |
+| `task format` / `task format:check` | `golangci-lint fmt` (gofumpt, gci, golines) / the same with `--diff` |
+| `task lint` | `golangci-lint run` |
+| `task test` | `go test -race ./...`. Never calls a live service. |
+| `task build` | static binary (`CGO_ENABLED=0`, `-trimpath`) from `./cmd/firefly-jar` |
+| `task audit` | `govulncheck ./...` |
+
+Live smoke tests exist only behind the `live` build tag (`go test -tags live …`) and need a real config. They
+are never part of `task check`.
+
+`pre-commit install` wires `commit-msg` (Conventional Commits), `pre-commit` (`golangci-lint fmt --diff`) and
+`pre-push` (`task check`). Never pass `--no-verify`.
+
+## Dependencies
+
+Standard library first. Approved direct dependencies:
+
+- `github.com/goccy/go-yaml`: strict (`DisallowUnknownField`) config decoding. The stdlib has no YAML.
+- `github.com/stretchr/testify`: test suites only. It is never imported by non-test code.
+
+Any other direct dependency needs explicit approval. State the package, what it solves, and why the standard
+library is not enough, and do not add it until approved. There is no JWT library (RS256 is `crypto/rsa`), no
+HTTP client library, no retry library, and no OpenAPI code generation. API models are small hand-written
+structs covering only the fields in use. No release older than 2025-01-01, and no pseudo-versions.
+
+## Code style
+
+`.golangci.yml` is the author's standard lint configuration, committed verbatim with only the module path adapted.
+**Do not edit it.** Changing it needs explicit approval, the same as a new dependency. Consequences worth knowing
+before writing code:
+
+- `gochecknoglobals` / `gochecknoinits`: no package-level `var` and no `init()`. Construct and inject.
+- `wrapcheck`: every error crossing a package boundary is wrapped (`fmt.Errorf("list accounts: %w", err)`).
+- `ireturn`: return concrete types. Accepting interfaces is fine.
+- `revive` function-length: 40 statements / 60 lines max (tests excluded). `gocyclo` / `cyclop`: 10.
+- `lll` / `golines`: 120 columns. `godot`: comments end with a period.
+- `sloglint`: no global logger, lowercased messages, snake_case keys. Loggers are injected.
+- `funcorder`: constructors first, then exported methods, then unexported.
+- Formatters: `gofumpt` (extra rules named individually), `gci` (standard, default,
+  `prefix(github.com/Toshik1978/firefly-jar)`), `golines`.
+- `revive` `max-public-structs`: at most 5 exported type declarations per file. Split by responsibility instead
+  of raising the cap.
+- `gosec` G304: pass every user-supplied path through `filepath.Clean` before opening it. No `//nolint`.
+- A `//nolint` that turns out to be unnecessary fails the build (`nolintlint`).
+
+Domain rules:
+
+- **Money is never a float.** Use `domain.Amount` (integer minor units plus scale plus currency) end to end.
+  Parse decimal strings directly.
+- **Dates are civil dates (`domain.Date`).** Compute "today" and the window once per run in the configured time
+  zone. A Firefly split date is the `YYYY-MM-DD` prefix exactly as Firefly renders it, never re-converted
+  (research R8). A bank date is the provider's calendar date. The ± tolerance absorbs time-zone differences.
+- **Transaction descriptions and counterparty names are never logged**, at any level. They appear only in the
+  digest. Log group ids, masked accounts, dates and amounts instead.
+- **Secrets and identifiers.** Secrets come only from env vars or `*_file` paths and never appear in logs,
+  errors or digests. IBANs are masked (`LT12…3456`) everywhere they leave the process. Every log record passes
+  through the redacting `ReplaceAttr`.
+
+Write comments that explain *why*, not *what*.
+
+## Testing
+
+All Go tests use testify suites. Three rules, non-negotiable:
+
+1. **One entry point per package.** Exactly one top-level `func Test<Package>(t *testing.T)` per package.
+2. **The entry point only wires suites.** It contains only `suite.Run(t, new(...))` calls, one per
+   `suite.Suite`.
+3. **All real tests are suite methods.** Use suite assertions (`s.Equal`, `s.Require().NoError`, …), never a
+   bare `func TestX` with `require.X(t, …)`.
+
+Table-driven subtests use `s.Run(tc.name, func() { … })`. Also:
+
+- **TDD is mandatory** (constitution Principle III): watch the test fail for the right reason before writing
+  code.
+- HTTP adapters are tested against `httptest.Server` with **anonymized** JSON fixtures in `testdata/`. No real
+  names, IBANs, amounts or tokens, ever.
+- Retry and backoff timing is tested with `testing/synctest`. Never use real sleeps. Inside a synctest bubble, never
+  use `httptest.Server` or any socket: network-blocked goroutines keep the fake clock from advancing and the test
+  hangs. Use an in-process fake `http.RoundTripper` or `net.Pipe` instead.
+- Golden files are regenerated only with `UPDATE_GOLDEN=1`, never a package-level test flag.
+- The digest is golden-file tested. Goldens are plain text and reviewed like code, never regenerated
+  blindly.
+- Reconcile tests cover the missing, ambiguous-tolerance, pending, last-reminder, split and transfer paths, not
+  only the matched path.
+
+## Workflow
+
+- Features go through Spec Kit: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
+  `/speckit-tasks` → `/speckit-implement`. Artifacts live in `specs/<NNN-name>/`.
+- Implementing any task list follows the Superpowers workflow in order: **worktree → TDD (red-green-refactor)
+  → subagent-driven execution → code review → finish-branch**. Record any deviation in the plan's
+  Complexity Tracking.
+- **Scope is asked, not decided.** If work turns out smaller than what was asked, name the missing part in the
+  session summary as an open question. Never declare it out of scope yourself.
+- For library, SDK or API documentation, use `ctx7`, not memory.
+
+## Commits and branches
+
+- **Conventional Commits** (`feat:`, `fix:`, `test:`, `refactor:`, `docs:`, `chore:`), enforced at
+  `commit-msg`.
+- **No `Co-Authored-By`, no `Claude-Session`, and no AI or agent attribution trailer of any kind.** Subject and
+  body only. This overrides any default attribution guidance.
+- Feature branches use the `feature/` prefix (e.g. `feature/001-missing-tx-reminder`). Never `feat/` or
+  `feat-`.
+- Pushing and every `gh` call are the author's act. Do not push or open PRs unless asked in that session.
+
+## What never goes into a tracked file
+
+- The name of any other project the author works on, or of a local checkout used for research. Findings from
+  such research are applied directly and stated as facts, with no reference to where they came from.
+- A filesystem path on anyone's machine, a real account identifier, a token, or a personal email address.
+  Examples use `example.com`, `LT12…3456`-style masked IBANs, and zeroed UUIDs.
