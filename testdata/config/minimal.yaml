@@ -1,0 +1,19 @@
+timezone: Europe/Vilnius
+state_file: state.json
+
+firefly:
+  url: https://firefly.example.com
+  token_file: secrets/firefly.token
+
+enablebanking:
+  app_id: 00000000-0000-0000-0000-000000000000
+  private_key_file: secrets/enablebanking.pem
+  redirect_url: https://example.com/eb-callback
+
+banks:
+  swedbank: { name: Swedbank, country: LT }
+
+notify:
+  telegram:
+    bot_token_file: secrets/telegram.token
+    chat_ids: [123456789]

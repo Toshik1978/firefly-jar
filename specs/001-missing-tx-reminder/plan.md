@@ -11,8 +11,8 @@ Enable Banking and the matching asset-account transactions from Firefly III, bot
 deterministically (exact amount, ±N days) and sends a plain-text digest of unmatched bank transactions to
 Telegram and/or email recipients. Exit codes 0, 1 and 2 separate clean, missing-found and check-failed runs.
 Only the Enable Banking session is persisted. The design is stdlib-first: hand-written read-only API clients,
-a GET-only transport guard for Firefly III, and one YAML dependency. See [research.md](research.md) for every
-decision.
+a GET-only transport guard for Firefly III, and a small, owner-approved set of third-party dependencies
+(YAML, exact decimal arithmetic, CLI parsing). See [research.md](research.md) for every decision.
 
 ## Technical Context
 
@@ -21,8 +21,15 @@ decision.
 **Primary Dependencies**:
 - Go standard library: `net/http`, `crypto/rsa` (JWT RS256), `net/smtp` + `crypto/tls`, `log/slog`,
   `encoding/json`.
-- `github.com/goccy/go-yaml` v1.19.x, the only third-party runtime dependency (R13).
+- `github.com/goccy/go-yaml` v1.19.x, strict YAML config decoding (R13).
+- `github.com/shopspring/decimal` v1.4.0, exact decimal arithmetic backing `domain.Amount` (R15). Owner
+  approved 2026-09-22 as an exception to the no-release-before-2025-01-01 rule.
+- `github.com/spf13/cobra`, CLI parsing for `check`/`auth`/`accounts`, in place of `flag.NewFlagSet` (R19).
 - `github.com/stretchr/testify` (suites), test-only (R17).
+- `internal/civil` is a trimmed copy of `cloud.google.com/go/civil` v0.123.0's `Date` (Apache-2.0 header
+  kept), not a dependency on `cloud.google.com/go` itself (R19).
+- Considered and not adopted: `fatih/color`, `dustin/go-humanize` — the digest is plain text for
+  Telegram/email, and the terminal output (`auth` prompt, `accounts` table) is too small to benefit.
 - Tooling (not linked into the binary): go-task, mise, golangci-lint v2, pre-commit, govulncheck.
 
 **Storage**: One JSON state file (Enable Banking sessions, `0600`, atomic writes). No database. See
@@ -61,8 +68,8 @@ dominated by provider latency, so accounts are fetched sequentially per bank to 
 | III. Superpowers Workflow & Test-First | Tasks are executed via worktree, TDD, subagent-driven development, code review, finish-branch. | PASS | PASS: tasks.md will be ordered test-first. **Precondition**: the repository must be `git init`-ed before the worktree step. |
 | IV. Provider-Agnostic Bank Integration | The core depends on a `bank.Provider` interface and normalized types. Contract tests use fixtures, with no live calls by default. | PASS | PASS: `bank.Provider` and `bank.Authorizer` interfaces, so `check` and `auth` never import the adapter; `internal/bank/enablebanking` implements both; the `live` tag is opt-in |
 | V. Secrets & Privacy | Secrets come only from env or `*_file`. Redaction in logs and notifications. IBAN masking. `0600` state. Anonymized fixtures. | PASS | PASS: config contract, slog `ReplaceAttr` redactor (R14), masked identifiers in the digest contract |
-| VI. Simple, Unattended Operation | One-shot binary with no scheduler or server, distinct exit codes, fail-fast config, stdlib-first with every dependency justified, slog summary. | PASS | PASS: one runtime dependency (YAML, justified in R13); testify is test-only (R17); oapi-codegen rejected (R1) |
-| Constraints | `gofmt`, `go vet`, `go test -race` gates; exact decimals; explicit time zones. | PASS | PASS: `task check` covers all three gates (R17); `domain.Amount` and `domain.Date` (R15) |
+| VI. Simple, Unattended Operation | One-shot binary with no scheduler or server, distinct exit codes, fail-fast config, stdlib-first with every dependency justified, slog summary. | PASS | PASS: a small set of justified runtime dependencies — YAML (R13), decimal arithmetic (R15), CLI parsing (R19) — plus a vendored copy, not a dependency, for civil dates (R19); testify is test-only (R17); oapi-codegen rejected (R1) |
+| Constraints | `gofmt`, `go vet`, `go test -race` gates; exact decimals; explicit time zones. | PASS | PASS: `task check` covers all three gates (R17); `domain.Amount` (`shopspring/decimal`) and `civil.Date` (R15) |
 
 Two recorded TDD deviations for scaffolding and declaration-only code; see Complexity Tracking.
 
@@ -92,7 +99,8 @@ cmd/firefly-jar/
 └── main.go                 # flag parsing, subcommand dispatch, os.Exit(code)
 
 internal/
-├── domain/                 # Date, Amount, Window (exact decimal and civil date)
+├── domain/                 # Amount (exact decimal, shopspring/decimal), Window (built on internal/civil)
+├── civil/                  # trimmed copy of cloud.google.com/go/civil's Date (no cloud.google.com/go dependency)
 ├── config/                 # YAML load (strict), env/file secret resolution, validation
 ├── logging/                # slog multi-handler (file JSON + stderr WARN+), redacting ReplaceAttr
 ├── redact/                 # IBAN masking, secret scrubbing for errors and URLs

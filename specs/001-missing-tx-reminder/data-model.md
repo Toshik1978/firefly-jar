@@ -3,13 +3,15 @@
 These are in-memory domain types, except for **BankSession**, which is the only type that is persisted
 (FR-037). The names are indicative. Packages are listed in plan.md.
 
-## Value types (`internal/domain`)
+## Value types (`internal/domain`, `internal/civil`)
+
+Elsewhere in this document, `Date` means `civil.Date` (`internal/civil`).
 
 | Type | Fields | Rules |
 |---|---|---|
-| `Date` | `Year int, Month time.Month, Day int` | A civil date in the configured time zone. Supports ordering and day arithmetic (`AddDays`, `DaysBetween`). |
-| `Amount` | `Minor int64, Scale uint8, Currency string` | Exact decimal (`Minor × 10^-Scale`), normalized by stripping trailing fractional zeros, so `"12.340000000000"` equals `"12.34"`. Parsed with no float. Equal only if currency and normalized value are equal. More than 18 significant digits is rejected (R15). |
-| `Window` | `From Date, To Date` (inclusive) | `From = today − (window_days − 1)` and `To = today` (FR-004). `IsFirstDay(d)` means `d == From` (FR-026). |
+| `civil.Date` (`internal/civil`) | `Year int, Month time.Month, Day int` | A civil date in the configured time zone; a trimmed copy of `cloud.google.com/go/civil`'s `Date` (R19), with no dependency on `cloud.google.com/go`. Supports ordering and day arithmetic (`AddDays`, `DaysSince`, the signed day count that replaced the original `domain.Date`'s `DaysBetween`). |
+| `Amount` (`internal/domain`) | `Value decimal.Decimal, Currency string` | Exact decimal, backed by `github.com/shopspring/decimal` (R15), parsed with no float through a grammar check stricter than `decimal.NewFromString` alone. `Equal` compares currency and value; `decimal.Decimal`'s own normalization means `"12.340000000000"` equals `"12.34"`. More than 18 significant digits is rejected (R15). |
+| `Window` (`internal/domain`) | `From civil.Date, To civil.Date` (inclusive) | `From = today − (window_days − 1)` and `To = today` (FR-004). `IsFirstDay(d)` means `d == From` (FR-026). |
 
 ## Bank side (`internal/bank`)
 

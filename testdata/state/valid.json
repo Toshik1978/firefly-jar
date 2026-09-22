@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "sessions": {
+    "swedbank": {
+      "provider": "enablebanking",
+      "session_id": "00000000-0000-0000-0000-000000000001",
+      "valid_until": "2027-03-21T10:15:00Z",
+      "authorized_at": "2026-09-22T10:15:00Z",
+      "accounts": [
+        {
+          "uid": "00000000-0000-0000-0000-000000000001",
+          "hash": "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXQpd.E8Gz",
+          "iban": "LT000000000000000001",
+          "currency": "EUR",
+          "name": "Main"
+        },
+        {
+          "uid": "00000000-0000-0000-0000-000000000002",
+          "hash": "YnJhbmNoL2Q4YzlkZjI4OzAvMTAwMQo=.xYZ123",
+          "iban": "",
+          "currency": "EUR",
+          "name": "Card"
+        }
+      ]
+    },
+    "revolut": {
+      "provider": "enablebanking",
+      "session_id": "00000000-0000-0000-0000-000000000002",
+      "valid_until": "2027-04-15T14:30:00Z",
+      "authorized_at": "2026-09-20T14:30:00Z",
+      "accounts": [
+        {
+          "uid": "00000000-0000-0000-0000-000000000003",
+          "hash": "QWxwaXMvMTAwMDI7L21haW4vYWNjdA==.aB9Cd",
+          "iban": "LT000000000000000002",
+          "currency": "USD",
+          "name": "Main"
+        }
+      ]
+    }
+  }
+}

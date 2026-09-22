@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "sessions": {
+    "swedbank": {
+      "provider": "enablebanking",
+      "session_id": "00000000-0000-0000-0000-000000000001",
+      "valid_until": "2027-03-21T10:15:00Z",
+      "authorized_at": "2026-09-22T10:15:00Z",
+      "accounts": [
+        {
+          "uid": "00000000-0000-0000-0000-000000000001",
+          "hash": "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXQpd.E8Gz",
+          "iban": "LT000000000000000001",
+          "currency": "EUR",
+          "name": "Main"
+        }
+      ]
+    }
+  }
+}

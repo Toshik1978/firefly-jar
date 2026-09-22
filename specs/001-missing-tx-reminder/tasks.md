@@ -111,7 +111,7 @@ Constitution §III step 1 needs a git repository. Before any task:
 
 ### domain: exact money and civil dates (data-model "Value types", R15)
 
-- [ ] T007 [P] Write `AmountSuite` in `internal/domain/amount_test.go`, registered in
+- [x] T007 [P] Write `AmountSuite` in `internal/domain/amount_test.go`, registered in
   `internal/domain/domain_test.go` (`TestDomain`). Cases:
   - `ParseAmount("12.34","EUR")` gives Minor 1234, Scale 2.
   - `"-12.40"` parses and is negative.
@@ -122,23 +122,43 @@ Constitution §III step 1 needs a git repository. Before any task:
   - `Neg` and `Abs`.
   - `Key()` is identical for equal values and currency, for grouping.
   - `Format(2)` gives `"-4.50"`, and `Format(0)` of 12.00 gives `"12"`.
-- [ ] T008 [P] Write `DateSuite` and `WindowSuite` in `internal/domain/date_test.go`:
+- [x] T008 [P] Write `DateSuite` and `WindowSuite` in `internal/domain/date_test.go`:
   - `ParseDate("2026-09-22")`; `DateOf(t time.Time, loc)`, using the calendar date in `loc`.
   - `AddDays` across month, year and leap day; `DaysBetween` (signed); `Compare`/`Before`;
     `String()` gives `YYYY-MM-DD`.
   - `NewWindow(today, 30)` has `From = today − 29` and `To = today`; `Contains` includes both ends;
     `IsFirstDay(d)` is true only for `From`.
-- [ ] T009 Implement `internal/domain/amount.go`:
+- [x] T009 Implement `internal/domain/amount.go`:
   - `type Amount struct{ Minor int64; Scale uint8; Currency string }`, parsed without float and normalized.
   - Methods: `Equal`, `IsZero`, `Neg`, `Abs`, `Sign`, `Key`, `Format(decimalPlaces uint8) string`.
   - Make T007 pass.
-- [ ] T010 Implement `internal/domain/date.go` (`Date{Year int; Month time.Month; Day int}`, `ParseDate`, `DateOf`,
+- [x] T010 Implement `internal/domain/date.go` (`Date{Year int; Month time.Month; Day int}`, `ParseDate`, `DateOf`,
   `AddDays`, `DaysBetween`, `Compare`, `String`) and `internal/domain/window.go` (`Window{From, To Date}`,
   `NewWindow`, `Contains`, `IsFirstDay`). Make T008 pass.
 
+The owner widened the dependency policy on 2026-09-22 (see the epic's ruling comments). Three tasks follow,
+added after T010 and run before T018:
+- [x] T010a Replace the hand-rolled `Amount{Minor int64, Scale uint8, Currency string}` from T009 with
+  `Amount{Value decimal.Decimal, Currency string}`, backed by `github.com/shopspring/decimal` v1.4.0
+  (owner-approved). `ParseAmount` keeps its own grammar check ahead of `decimal.NewFromString` (stricter: no
+  scientific notation, no thousands separators, more than 18 significant digits still rejected). Add a new
+  `Add` method that sums Firefly split amounts and errors on currency mismatch (FR-009).
+  `Equal`/`IsZero`/`Neg`/`Abs`/`Sign`/`Key`/`Format(decimalPlaces uint8) string` keep their T009 behavior. No
+  float anywhere.
+- [x] T010b Remove `internal/domain/date.go` (`Date`, `ParseDate`, `DateOf`, `AddDays`, `DaysBetween`,
+  `Compare`, `String` from T008/T010) and add `internal/civil`, a trimmed copy of
+  `cloud.google.com/go/civil` v0.123.0's `Date` (Apache-2.0 header kept; `Time`/`DateTime`, `database/sql`
+  integration and `AddMonths`/`AddYears`/`Weekday` removed as unused). `DaysBetween` is replaced by
+  `DaysSince` (the signed day count between two dates, the inverse of `AddDays`). `internal/domain/window.go`
+  moves `Window{From, To civil.Date}` and its methods onto `civil.Date`, unchanged in behavior. Wherever a
+  task in this file says `domain.Date` or `DaysBetween`, read `civil.Date` (`internal/civil`) and
+  `DaysSince`.
+- [x] T010c Update `plan.md`, `research.md`, `data-model.md`, `tasks.md` and `.claude/CLAUDE.md` to state the
+  T010a/T010b dependency decisions, and the CLI decision (cobra, for T053/T054), as facts.
+
 ### redact: masking and secret scrubbing (FR-035, FR-036)
 
-- [ ] T011 [P] Write `RedactorSuite` in `internal/redact/redact_test.go`, registered in
+- [x] T011 [P] Write `RedactorSuite` in `internal/redact/redact_test.go`, registered in
   `internal/redact/redact_pkg_test.go` (`TestRedact`). Cases:
   - `MaskIBAN("LT121000011101001000")` gives `"LT12…1000"`; strings of 8 characters or fewer come back as
     `"****"`.
@@ -147,18 +167,18 @@ Constitution §III step 1 needs a git repository. Before any task:
   - `Scrub` masks IBAN-shaped substrings (`[A-Z]{2}\d{2}[A-Z0-9]{11,30}`) in free text.
   - A Telegram URL `https://api.telegram.org/bot<token>/sendMessage` has the token scrubbed even when it
     isn't in the secret list (`/bot[^/]+/` pattern).
-- [ ] T012 Implement `internal/redact/redact.go`: `type Redactor struct` with regexes compiled in `New`, no
+- [x] T012 Implement `internal/redact/redact.go`: `type Redactor struct` with regexes compiled in `New`, no
   globals; `MaskIBAN` and `MaskHash` as pure functions. Make T011 pass.
 
 ### config: strict YAML, secrets, validation (contracts/config.md, FR-030, FR-034)
 
-- [ ] T013 [P] Add anonymized fixtures:
+- [x] T013 [P] Add anonymized fixtures:
   - `testdata/config/valid.yaml`: every section from `contracts/config.md`, with `*_file` paths pointing
     to files under `testdata/config/secrets/` (mode 0600).
   - `testdata/config/minimal.yaml`: required fields only.
   - A test RSA key: `testdata/config/secrets/enablebanking.pem` (PKCS#8) and
     `testdata/config/secrets/enablebanking_pkcs1.pem`, both generated for tests only.
-- [ ] T014 [P] Write `LoadSuite` and `ValidateSuite` in `internal/config/config_test.go`, registered in
+- [x] T014 [P] Write `LoadSuite` and `ValidateSuite` in `internal/config/config_test.go`, registered in
   `internal/config/config_pkg_test.go` (`TestConfig`).
   - **Loading and defaults:**
     - `valid.yaml` loads.
@@ -190,7 +210,7 @@ Constitution §III step 1 needs a git repository. Before any task:
       - `check --stdout` does not require notifier secrets or recipients;
       - `check` requires every configured notifier's secret and at least one recipient.
     - `log_file` directory existence and writability is checked for `check` only.
-- [ ] T015 Implement `internal/config`:
+- [x] T015 Implement `internal/config`:
   - Types matching contracts/config.md. Keep at most 5 exported types per file, as revive
     `max-public-structs` in `.golangci.yml` requires. Use `config.go` (`Config`, `Bank`, `AccountRule`),
     `services.go` (`Firefly`, `EnableBanking`), `notify.go` (`Notify`, `Telegram`, `Email`) and `secrets.go`
@@ -212,7 +232,7 @@ Constitution §III step 1 needs a git repository. Before any task:
 
 ### logging: file JSON + stderr WARN+, redacted (FR-038, FR-039, R14)
 
-- [ ] T016 [P] Write `LoggingSuite` in `internal/logging/logging_test.go`, registered in
+- [x] T016 [P] Write `LoggingSuite` in `internal/logging/logging_test.go`, registered in
   `internal/logging/logging_pkg_test.go`, with `bytes.Buffer` writers:
   - An INFO record goes to the file writer only, as JSON.
   - A WARN record goes to both; stderr uses the text format.
@@ -221,7 +241,7 @@ Constitution §III step 1 needs a git repository. Before any task:
     - masks IBAN-shaped values in string attributes;
     - replaces the values of keys `token`, `password`, `private_key`, `authorization` with `[REDACTED]`;
     - truncates `session_id` to `first4…`.
-- [ ] T017 Implement `internal/logging/logging.go`:
+- [x] T017 Implement `internal/logging/logging.go`:
   - `New(file io.Writer, stderr io.Writer, level slog.Level, r *redact.Redactor) *slog.Logger`, built with
     `slog.NewMultiHandler`.
   - `OpenFile(path string) (*os.File, error)`, opening `filepath.Clean(path)` with `O_APPEND|O_CREATE|O_WRONLY`
@@ -230,7 +250,7 @@ Constitution §III step 1 needs a git repository. Before any task:
 
 ### httpx: retries and client defaults (R12)
 
-- [ ] T018 [P] (FR-031) Write `RetrySuite` in `internal/httpx/retry_test.go`, registered in `internal/httpx/httpx_test.go`.
+- [x] T018 [P] (FR-031) Write `RetrySuite` in `internal/httpx/retry_test.go`, registered in `internal/httpx/httpx_test.go`.
   Use `testing/synctest` with an **in-process scripted fake `http.RoundTripper`** as `Base`: it returns a
   queued response or error per attempt and records attempts. No `httptest` or sockets. Cases:
   - A GET that gets 500, 500, then 200 succeeds after 2 retries with waits of about 1s and 2s (jitter source
@@ -245,16 +265,16 @@ Constitution §III step 1 needs a git repository. Before any task:
   - Response bodies of failed attempts are drained and closed.
   - Context cancellation stops the waiting.
   - At most 3 retries (4 attempts), then the last response or error is returned.
-- [ ] T019 Implement `internal/httpx/retry.go`: `RetryTransport{Base http.RoundTripper; MaxRetries int;
+- [x] T019 Implement `internal/httpx/retry.go`: `RetryTransport{Base http.RoundTripper; MaxRetries int;
   BaseDelay, MaxWait time.Duration; Jitter func() float64}`, with defaults 3, 1s, 60s and 20%. Implement
   `internal/httpx/client.go`: `NewClient(rt http.RoundTripper) *http.Client` with a 30s timeout and
   `CheckRedirect` returning `http.ErrUseLastResponse`. Make T018 pass.
 
 ### state: session file (contracts/state.md, FR-019, FR-037, R11)
 
-- [ ] T020 [P] Add fixtures `testdata/state/valid.json` (two banks, anonymized) and
+- [x] T020 [P] Add fixtures `testdata/state/valid.json` (two banks, anonymized) and
   `testdata/state/bad_version.json` (`"version": 2`).
-- [ ] T021 [P] Write `StateSuite` in `internal/state/state_test.go`, registered in `internal/state/state_pkg_test.go`:
+- [x] T021 [P] Write `StateSuite` in `internal/state/state_test.go`, registered in `internal/state/state_pkg_test.go`:
   - `Load` of a missing path returns an empty `State{Version: 1}` without error.
   - `Load(valid.json)` round-trips.
   - An unknown `version` is an error.
@@ -263,7 +283,7 @@ Constitution §III step 1 needs a git repository. Before any task:
     - writes mode `0600`;
     - `Put(bankKey, session)` replaces only that bank;
     - a simulated failure (read-only dir) leaves the old file intact and no `.state.*.tmp` behind.
-- [ ] T022 Implement `internal/state/state.go`:
+- [x] T022 Implement `internal/state/state.go`:
   - Types `State{Version int; Sessions map[string]Session}`,
     `Session{Provider, SessionID string; ValidUntil, AuthorizedAt time.Time; Accounts []Account}` and
     `Account{UID, Hash, IBAN, Currency, Name string}`, with JSON tags exactly as in contracts/state.md.
@@ -275,11 +295,11 @@ Constitution §III step 1 needs a git repository. Before any task:
 
 ### bank: provider abstraction (Principle IV, data-model "Bank side")
 
-- [ ] T023 [P] Write `ErrorsSuite` in `internal/bank/bank_test.go`, registered in `internal/bank/bank_pkg_test.go`:
+- [x] T023 [P] Write `ErrorsSuite` in `internal/bank/bank_test.go`, registered in `internal/bank/bank_pkg_test.go`:
   - `errors.Is` works through wrapping for `ErrConsentExpired`, `ErrConsentRevoked`, `ErrRateLimited` and
     `ErrDataIncomplete`.
   - `*bank.Error{Kind, Detail}` unwraps to its kind.
-- [ ] T024 (FR-022) Implement `internal/bank`, split to keep at most 5 exported types per file (revive
+- [x] T024 (FR-022) Implement `internal/bank`, split to keep at most 5 exported types per file (revive
   `max-public-structs`): `bank.go` (`Account`, `Status`, `Transaction`), `provider.go` (`Provider`,
   `Authorizer`, `Pending`) and `errors.go` (sentinels, `Error`):
   - `Account{BankKey, UID, Hash, IBAN, Currency, Name string}`.
@@ -294,7 +314,7 @@ Constitution §III step 1 needs a git repository. Before any task:
   - Sentinel errors, `ErrStateMismatch`, and `Error`.
   - Make T023 pass.
 
-- [ ] T025 [P] Create `internal/firefly/types.go` with the domain types only, and no client code:
+- [x] T025 [P] Create `internal/firefly/types.go` with the domain types only, and no client code:
   - `Account{ID, Name, IBAN, Currency, Role string; DecimalPlaces uint8; Active bool}`.
   - `Entry{GroupID, AccountID string; Date domain.Date; Amount domain.Amount; Description string}`.
   - Add a package doc comment stating the read-only rule (FR-001).
@@ -621,8 +641,11 @@ run prints nothing and exits 0. The end-to-end version is T056.
       0 or 1;
     - `check` without `--stdout` builds exactly the notifiers configured.
 - [ ] T054 [US1] Complete `internal/app/cli.go` and add `internal/app/wire.go`:
-  - `Run` parses subcommands with `flag.NewFlagSet`: `check [--stdout]`, `auth <bank>`, `accounts [--ids]`,
-    and global `--config`, `--version`, `--help`.
+  - `Run` parses subcommands with `github.com/spf13/cobra` (owner-approved 2026-09-22), not
+    `flag.NewFlagSet`: a cobra root command wired with `SetArgs`/`SetIn`/`SetOut`/`SetErr` and
+    `SilenceUsage`/`SilenceErrors`, exit codes mapped explicitly, keeping `Run(args, stdin, stdout, stderr)
+    int` as the entry point for `check [--stdout]`, `auth <bank>`, `accounts [--ids]`, and global
+    `--config`, `--version`, `--help`.
   - `wire.go` builds deps **per command** from the `Secrets` returned by `config.ValidateFor(cmd, stdout)`:
     - Redactor: from the resolved secrets only. Unresolved secrets are never in memory, so they cannot leak.
     - Logger: file (JSON) plus stderr (WARN and above) for `check`; stderr only (WARN and above) for `auth`

@@ -8,3 +8,5 @@ state.json
 *.log
 .env
 .claude/worktrees/
+!testdata/**/*.pem
+!testdata/**/*.token

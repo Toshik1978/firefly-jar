@@ -1,0 +1,45 @@
+timezone: Europe/Vilnius
+window_days: 30
+date_tolerance_days: 3
+consent_warn_days: 7
+state_file: state.json
+log_file: firefly-jar.log
+log_level: info
+
+firefly:
+  url: https://firefly.example.com
+  token_file: secrets/firefly.token
+
+enablebanking:
+  app_id: 00000000-0000-0000-0000-000000000000
+  private_key_file: secrets/enablebanking.pem
+  redirect_url: https://example.com/eb-callback
+  psu_type: personal
+
+banks:
+  swedbank: { name: Swedbank, country: LT }
+  revolut: { name: Revolut, country: LT, display: Revolut }
+
+accounts:
+  - bank: swedbank
+    hash: "WwpbCiJhY2NvdW50Ii…"
+    firefly_account_id: 43
+  - bank: revolut
+    iban: LT000000000000000001
+    currency: USD
+    firefly_account_id: 21
+  - bank: swedbank
+    iban: LT000000000000000002
+    exclude: true
+
+notify:
+  telegram:
+    bot_token_file: secrets/telegram.token
+    chat_ids: [123456789, -1001234567890]
+  email:
+    host: smtp.example.com
+    port: 587
+    username: firefly-jar@example.com
+    password_file: secrets/smtp.password
+    from: firefly-jar@example.com
+    to: [me@example.com, spouse@example.com]

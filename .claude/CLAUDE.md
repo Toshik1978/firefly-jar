@@ -61,12 +61,25 @@ are never part of `task check`.
 Standard library first. Approved direct dependencies:
 
 - `github.com/goccy/go-yaml`: strict (`DisallowUnknownField`) config decoding. The stdlib has no YAML.
+- `github.com/shopspring/decimal` v1.4.0: exact decimal arithmetic backing `domain.Amount`, so money is
+  never a float and never a hand-rolled minor-units/scale representation.
+- `github.com/spf13/cobra`: CLI parsing for `check`/`auth`/`accounts` and their flags, in place of
+  `flag.NewFlagSet`.
 - `github.com/stretchr/testify`: test suites only. It is never imported by non-test code.
+
+`internal/civil` is a trimmed copy of `cloud.google.com/go/civil`'s `Date` type (Apache-2.0 header kept),
+used for civil dates end to end. It is not a dependency on `cloud.google.com/go` itself.
+
+Considered and not adopted: `fatih/color`, `dustin/go-humanize`. The digest is plain text for
+Telegram/email, and the terminal output (`auth` prompt, `accounts` table) is too small to benefit; revisit
+if colored terminal output is wanted.
 
 Any other direct dependency needs explicit approval. State the package, what it solves, and why the standard
 library is not enough, and do not add it until approved. There is no JWT library (RS256 is `crypto/rsa`), no
 HTTP client library, no retry library, and no OpenAPI code generation. API models are small hand-written
-structs covering only the fields in use. No release older than 2025-01-01, and no pseudo-versions.
+structs covering only the fields in use. No release older than 2025-01-01, and no pseudo-versions, except an
+owner-named library the owner explicitly approves as an exception (`github.com/shopspring/decimal` v1.4.0
+is the one approved so far, notwithstanding its release date).
 
 ## Code style
 
@@ -90,11 +103,12 @@ before writing code:
 
 Domain rules:
 
-- **Money is never a float.** Use `domain.Amount` (integer minor units plus scale plus currency) end to end.
-  Parse decimal strings directly.
-- **Dates are civil dates (`domain.Date`).** Compute "today" and the window once per run in the configured time
-  zone. A Firefly split date is the `YYYY-MM-DD` prefix exactly as Firefly renders it, never re-converted
-  (research R8). A bank date is the provider's calendar date. The ± tolerance absorbs time-zone differences.
+- **Money is never a float.** Use `domain.Amount` (`Value decimal.Decimal` plus `Currency string`, backed by
+  `github.com/shopspring/decimal`) end to end. Parse decimal strings directly.
+- **Dates are civil dates (`internal/civil.Date`).** Compute "today" and the window once per run in the
+  configured time zone. A Firefly split date is the `YYYY-MM-DD` prefix exactly as Firefly renders it, never
+  re-converted (research R8). A bank date is the provider's calendar date. The ± tolerance absorbs time-zone
+  differences.
 - **Transaction descriptions and counterparty names are never logged**, at any level. They appear only in the
   digest. Log group ids, masked accounts, dates and amounts instead.
 - **Secrets and identifiers.** Secrets come only from env vars or `*_file` paths and never appear in logs,

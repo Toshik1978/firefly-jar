@@ -242,7 +242,8 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
 ## R13. YAML parser
 
 - **Decision**: `github.com/goccy/go-yaml` v1.19.x with strict decoding (`yaml.Strict()` /
-  `yaml.DisallowUnknownField()`). This is the only third-party runtime dependency.
+  `yaml.DisallowUnknownField()`). It is one of a small, owner-approved set of third-party runtime
+  dependencies (R15, R19), and the only one used for config decoding.
 - **Rationale**: It is actively maintained, has a strict mode that rejects unknown keys (FR-030), and gives
   error messages with line and column, which matters for a human-edited config. It is also the parser already
   standard across the author's Go tooling, so there is one fewer library to learn.
@@ -261,18 +262,28 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
 ## R15. Money and dates
 
 - **Decision**:
-  - `Amount{Minor int64, Scale uint8, Currency string}` is parsed directly from decimal strings with no float.
-    Values are normalized by stripping trailing fractional zeros: Firefly sends 12 places
-    (`"12.340000000000"`) and banks send 2. Equality compares normalized values plus currency.
+  - `Amount{Value decimal.Decimal, Currency string}` is backed by `github.com/shopspring/decimal` v1.4.0
+    (owner-approved 2026-09-22) and parsed directly from decimal strings with no float, through a grammar
+    check stricter than `decimal.NewFromString` alone: only an optional leading sign, digits, and at most
+    one decimal point are accepted, so scientific notation, thousands separators and stray whitespace are
+    all rejected. `decimal.Decimal`'s own normalization means Firefly's 12 places (`"12.340000000000"`)
+    and a bank's 2 places (`"12.34"`) compare equal; `Equal` also compares currency.
   - More than 18 significant digits fails parsing, which makes the account unchecked ("bank data
     incomplete" or "Firefly data incomplete").
   - Display uses the currency's usual minor units: the Firefly account's `currency_decimal_places` when
-    known, else 2.
-  - Dates are a civil `Date{Year, Month, Day}`. Bank dates are already calendar dates. Firefly dates are the
-    `YYYY-MM-DD` prefix as rendered by the server (R8). "Today" and the window are computed once per run in
-    the configured time zone.
+    known, else 2 (`Amount.Format(decimalPlaces)`, backed by `decimal.Decimal.StringFixed`, which is
+    `big.Int`-backed so padding to a large precision never overflows).
+  - Dates are a civil `Date{Year, Month, Day}` (`internal/civil.Date`, R19). Bank dates are already
+    calendar dates. Firefly dates are the `YYYY-MM-DD` prefix as rendered by the server (R8). "Today" and
+    the window are computed once per run in the configured time zone. Day arithmetic uses `AddDays` and
+    `DaysSince` (the signed day count between two dates); an earlier hand-rolled `DaysBetween` was renamed
+    to `DaysSince` when `internal/civil` replaced the original `domain.Date` (R19).
 - **Rationale**: Exact comparison (FR-007), no hard-coded ISO 4217 table, and immunity to the two sides'
-  different decimal precision.
+  different decimal precision. `shopspring/decimal` replaced a hand-rolled `Amount{Minor int64, Scale
+  uint8, Currency string}` once the owner widened the dependency policy (2026-09-22): it is well-tested and
+  removes bespoke normalization and rounding code.
+- **Alternatives considered**: the original hand-rolled minor-units/scale representation worked but
+  reimplemented decimal normalization and rounding that `shopspring/decimal` already provides correctly.
 
 ## R16. Go toolchain features used
 
@@ -321,3 +332,26 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
   - Marking such transactions "ambiguous" instead of missing: rejected, because it would make the count
     fuzzy.
   - An optimal assignment by minimal total date distance: same count, still a guess, more code.
+
+## R19. CLI parsing (cobra) and the vendored civil date
+
+- **Decision**:
+  - `internal/app` parses subcommands with `github.com/spf13/cobra` (owner-approved 2026-09-22) instead of
+    `flag.NewFlagSet`. `Run(args, stdin, stdout, stderr) int` stays the tested entry point: a cobra root
+    command wired with `SetArgs`/`SetIn`/`SetOut`/`SetErr` and `SilenceUsage`/`SilenceErrors`, with exit
+    codes mapped explicitly (`--version`, an unknown subcommand, `check --help`, and so on).
+  - `internal/civil` is a trimmed copy of `cloud.google.com/go/civil` v0.123.0's `Date` type (package
+    `civil`, file `civil.go`; Apache-2.0 header kept). The `Time` and `DateTime` types, their
+    `database/sql` `Scan`/`Value` integration, and `AddMonths`/`AddYears`/`Weekday` were removed because
+    nothing in firefly-jar needs them. `ParseDate` and `UnmarshalText` now wrap the underlying error to
+    satisfy `wrapcheck`. This replaces the original hand-rolled `domain.Date`; `domain.Window` now embeds
+    `civil.Date` and `DaysBetween` is replaced by `civil.Date.DaysSince`.
+- **Rationale**: `flag.NewFlagSet` cannot express `check [--stdout]`, `auth <bank>`, `accounts [--ids]` and
+  global flags without hand-written subcommand dispatch and usage text; cobra does this directly. Vendoring
+  `civil.Date` gives the same well-tested proleptic-Gregorian date arithmetic as depending on
+  `cloud.google.com/go/civil` without pulling in the rest of the `cloud.google.com/go` module tree, which
+  firefly-jar otherwise has no use for.
+- **Alternatives considered**: `flag.NewFlagSet` and a hand-rolled `domain.Date` were the original
+  decisions, kept only as long as the dependency policy required stdlib-only code; the owner widened that
+  policy on 2026-09-22. Depending on `cloud.google.com/go/civil` directly was rejected only because of its
+  module tree, not the type itself.
