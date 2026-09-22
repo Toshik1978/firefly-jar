@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v3
+
+      - uses: go-task/setup-task@v2
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+
+      - run: task test
+
+      - run: task audit

@@ -1,0 +1,6 @@
+[tools]
+go = "1.27"
+# golangci-lint must float to "latest" to always match CI's configured version.
+# CI uses "latest", so the development environment must too.
+golangci-lint = "latest"
+git-cliff = "2"

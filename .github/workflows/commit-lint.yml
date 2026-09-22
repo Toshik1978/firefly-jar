@@ -1,0 +1,28 @@
+name: Commit Lint
+
+on:
+  pull_request:
+
+jobs:
+  commit-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install conventional-pre-commit
+
+      - name: check every commit message in the pull request
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          git log --format=%H "${base}..${head}" | while read -r sha; do
+            git log -1 --format=%B "${sha}" >commit-msg.txt
+            conventional-pre-commit commit-msg.txt
+          done

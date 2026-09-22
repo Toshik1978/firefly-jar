@@ -1,0 +1,58 @@
+version: "3"
+
+vars:
+  BINARY: firefly-jar
+
+env:
+  CGO_ENABLED: "0"
+
+tasks:
+  setup:
+    desc: Install pinned tools and download module dependencies.
+    cmds:
+      - mise install
+      - go mod download
+
+  format:
+    desc: Format the codebase.
+    cmds:
+      - golangci-lint fmt
+
+  format:check:
+    desc: Check formatting without writing changes.
+    cmds:
+      - golangci-lint fmt --diff
+
+  lint:
+    desc: Run static analysis.
+    cmds:
+      - golangci-lint run
+
+  test:
+    desc: Run tests with the race detector.
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - go test -race ./...
+
+  build:
+    desc: Build a static binary.
+    cmds:
+      - go build -trimpath -ldflags "-s -w" -o {{.BINARY}} ./cmd/firefly-jar
+
+  check:
+    desc: Run the full gate (format, lint, test).
+    cmds:
+      - task: format:check
+      - task: lint
+      - task: test
+
+  audit:
+    desc: Check dependencies for known vulnerabilities.
+    cmds:
+      - go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  clean:
+    desc: Remove build artifacts.
+    cmds:
+      - rm -rf {{.BINARY}} dist/ cover.out

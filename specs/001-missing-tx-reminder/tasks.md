@@ -66,7 +66,7 @@ Constitution §III step 1 needs a git repository. Before any task:
 
 **Purpose**: A buildable, lint-clean, empty module with the full gate wired up.
 
-- [ ] T001 Create `Taskfile.yml` (go-task v3) with `vars: BINARY: firefly-jar`, `env: CGO_ENABLED: "0"` and
+- [x] T001 Create `Taskfile.yml` (go-task v3) with `vars: BINARY: firefly-jar`, `env: CGO_ENABLED: "0"` and
   these tasks:
   - `setup`: `mise install`; `go mod download`.
   - `format`: `golangci-lint fmt`.
@@ -77,24 +77,24 @@ Constitution §III step 1 needs a git repository. Before any task:
   - `check`: `format:check` → `lint` → `test`.
   - `audit`: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`.
   - `clean`: `rm -rf {{.BINARY}} dist/ cover.out`.
-- [ ] T002 [P] Create `.mise.toml` with `[tools]` `go = "1.27"`, `golangci-lint = "latest"` and `git-cliff = "2"`.
+- [x] T002 [P] Create `.mise.toml` with `[tools]` `go = "1.27"`, `golangci-lint = "latest"` and `git-cliff = "2"`.
   Add a comment explaining why golangci-lint floats: it must match CI's `latest`.
-- [ ] T003 [P] Create `.pre-commit-config.yaml`:
+- [x] T003 [P] Create `.pre-commit-config.yaml`:
   - `default_install_hook_types: [pre-commit, pre-push, commit-msg]`.
   - Repo `https://github.com/compilerla/conventional-pre-commit` rev `v4.4.0`, hook `conventional-pre-commit`
     at stage `commit-msg`.
   - Local hook `golangci-lint fmt --diff` (`language: system`, `types: [go]`, `pass_filenames: false`,
     stage `pre-commit`).
   - Local hook `task check` (`pass_filenames: false`, stage `pre-push`).
-- [ ] T004 [P] Create `.github/workflows/ci.yml`, running on push/PR to `main` on `ubuntu-latest`:
+- [x] T004 [P] Create `.github/workflows/ci.yml`, running on push/PR to `main` on `ubuntu-latest`:
   - Steps: checkout@v5, `jdx/mise-action@v3`, `go-task/setup-task@v2` (go-task is not provided by mise),
     `golangci/golangci-lint-action@v8` with `version: latest`, `task test`, and govulncheck.
   - Pin every action to a major tag, never an exact version.
   - Also create `.github/workflows/commit-lint.yml`, which runs conventional-commit checks on PR commits and
     **has no path filter**.
-- [ ] T005 [P] Create `.gitignore` covering `/firefly-jar`, `/dist/`, `cover.out`, `/config.yaml`, `*.pem`,
+- [x] T005 [P] Create `.gitignore` covering `/firefly-jar`, `/dist/`, `cover.out`, `/config.yaml`, `*.pem`,
   `*.token`, `state.json`, `*.log`, `.env`, `.claude/worktrees/` (agent worktrees live inside the repo).
-- [ ] T006 Create the `cmd/firefly-jar/main.go` stub. `main()` calls `os.Exit(app.Run(os.Args[1:], os.Stdin,
+- [x] T006 Create the `cmd/firefly-jar/main.go` stub. `main()` calls `os.Exit(app.Run(os.Args[1:], os.Stdin,
   os.Stdout, os.Stderr))`. Create `internal/app/cli.go` with a `Run` that returns 2 and prints `usage:
   firefly-jar <check|auth|accounts> [flags]` to stderr. Keep `go.mod` at `go 1.27.1`, then confirm
   `task check` exits 0. Dependencies are added by the first task that imports them.

@@ -1,0 +1,10 @@
+/firefly-jar
+/dist/
+cover.out
+/config.yaml
+*.pem
+*.token
+state.json
+*.log
+.env
+.claude/worktrees/
