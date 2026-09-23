@@ -440,42 +440,19 @@ func (s *CLISuite) newHarness(n cliNotify, bankTxs []bank.Transaction, entries [
 // configYAML renders the case's config. Secret file paths that the case does not provide name
 // files that do not exist, so reading them would fail.
 func (*CLISuite) configYAML(dir, fireflyURL string, n cliNotify) string {
-	var b strings.Builder
-
-	b.WriteString("timezone: Europe/Vilnius\n")
-	b.WriteString("window_days: 30\n")
-	b.WriteString("date_tolerance_days: 3\n")
-	b.WriteString("consent_warn_days: 7\n")
-	b.WriteString("state_file: " + filepath.Join(dir, "state.json") + "\n")
-	b.WriteString("log_file: " + filepath.Join(dir, "firefly-jar.log") + "\n")
-	b.WriteString("log_level: info\n")
-	b.WriteString("firefly:\n")
-	b.WriteString("  url: " + fireflyURL + "\n")
-	b.WriteString("enablebanking:\n")
-	b.WriteString("  app_id: 00000000-0000-0000-0000-000000000000\n")
-	b.WriteString("  private_key_file: " + filepath.Join(dir, "enablebanking.pem") + "\n")
-	b.WriteString("  redirect_url: https://example.com/eb-callback\n")
-	b.WriteString("banks:\n")
-	b.WriteString("  " + checkBankKey + ": { name: Test Bank, country: LT, display: Testbank }\n")
-	b.WriteString("notify:\n")
-
-	if n.telegram {
-		b.WriteString("  telegram:\n")
-		b.WriteString("    bot_token_file: " + filepath.Join(dir, "telegram.token") + "\n")
-		b.WriteString("    chat_ids: [100000001]\n")
-	}
-
-	if n.email {
-		b.WriteString("  email:\n")
-		b.WriteString("    host: smtp.example.com\n")
-		b.WriteString("    port: 587\n")
-		b.WriteString("    username: firefly-jar@example.com\n")
-		b.WriteString("    password_file: " + filepath.Join(dir, "smtp.password") + "\n")
-		b.WriteString("    from: firefly-jar@example.com\n")
-		b.WriteString("    to: [owner@example.com]\n")
-	}
-
-	return b.String()
+	return buildConfigYAML(configOpts{
+		timezone:          "Europe/Vilnius",
+		stateFile:         filepath.Join(dir, "state.json"),
+		logFile:           filepath.Join(dir, "firefly-jar.log"),
+		fireflyURL:        fireflyURL,
+		privateKeyFile:    filepath.Join(dir, "enablebanking.pem"),
+		banks:             []configBank{{key: checkBankKey, name: "Test Bank", country: "LT", display: "Testbank"}},
+		telegram:          n.telegram,
+		telegramTokenFile: filepath.Join(dir, "telegram.token"),
+		telegramChatIDs:   []int64{100000001},
+		email:             n.email,
+		emailPasswordFile: filepath.Join(dir, "smtp.password"),
+	})
 }
 
 // writeState saves a state file with one session for the configured bank whose one account maps

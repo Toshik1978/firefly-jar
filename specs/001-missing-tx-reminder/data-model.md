@@ -87,7 +87,7 @@ type Authorizer interface {
 |---|---|---|
 | `GroupID` | string | The transaction group id. |
 | `AccountID` | string | The asset account the entry is relative to. |
-| `Date` | Date | The `YYYY-MM-DD` prefix of the first split's `date` as rendered by Firefly III (FR-006a, R8). |
+| `Date` | Date | The `YYYY-MM-DD` prefix of the first counted split's `date` as rendered by Firefly III (FR-006a, R8): the first split that counts toward `Amount`, so a leading split that is skipped (another account, an uncounted type, or not comparable in the account's currency) never sets the date. |
 | `Amount` | Amount | Signed relative to the account, in the account's currency (`amount` or `foreign_amount`). Comparable splits in the group are summed (FR-009, R8). Only `withdrawal`, `deposit` and `transfer` splits count. |
 | `Description` | string | Kept in memory for tests and debugging. **Never logged** (constitution §V). |
 
@@ -141,16 +141,18 @@ within 2× the tolerance. It is informational only and never changes a match.
    Pending one and increment `Deduplicated`. A pending copy whose booked twin falls outside the window stays.
 3. Group bank transactions and Firefly entries by `(Amount.Currency, Amount value)`. The account is fixed per
    call. A different currency never matches.
-4. In each group, sort both sides by `(Date, then stable tiebreak on description/id)`. For each bank
-   transaction in order, pair it with the earliest unused Firefly entry where
+4. In each group, sort the bank transactions by `(Date, Currency, numeric value, EntryRef, Description,
+   Status)` with Booked before Pending, and the Firefly entries by `(Date, GroupID)`, where group ids are
+   compared numerically when both are integers (`"99"` before `"100"`, as in Firefly III) and as strings
+   otherwise. For each bank transaction in that order, pair it with the earliest unused Firefly entry where
    `|entry.Date − tx.Date| ≤ tolerance`.
 5. Unpaired bank transactions become `Missing`, with `Pending = Status == Pending` and
    `LastReminder = window.IsFirstDay(tx.Date)`.
 6. Hints (FR-025a): for each Missing item, look at the Firefly entries in the same bucket. Candidates are
    (a) entries within `tolerance` that were paired with another bank transaction (`Taken`), and (b) unpaired
    or paired entries with `tolerance < |Δ| ≤ 2×tolerance` (`NearMiss`). Pick the one with the smallest `|Δ|`,
-   breaking ties by earlier date and then group id. Taken wins over NearMiss at equal `|Δ|`. No candidates →
-   `Hint = nil`.
+   breaking ties by earlier date and then group id (the numeric rule of step 4). A Taken candidate is always
+   nearer than a NearMiss one, so the two kinds never tie. No candidates → `Hint = nil`.
 7. Invariant, asserted in tests. With `inWindow` = fetched transactions dated in the window, before
    deduplication: `len(inWindow) == len(Matched) + len(Missing) + Deduplicated + Void`. Nothing is dropped
    silently (FR-011).
@@ -171,6 +173,11 @@ within 2× the tolerance. It is informational only and never changes a match.
 any Missing. Otherwise `0`.
 
 **Digest needed** (FR-024): any Missing, any ConsentWarning, any Unchecked, or any Problem.
+
+**Summary** (FR-038, the INFO run-summary record): `accounts_checked`, `accounts_unchecked` and
+`accounts_excluded` (an account set aside by an `exclude: true` rule: never fetched, never in the digest,
+counted only here), then the reconcile counts `matched`, `missing`, `deduplicated` and `void` over checked
+accounts only.
 
 ## Digest (`internal/digest`)
 `Render(RunReport) → Digest{Subject string, Lines []string}`, following

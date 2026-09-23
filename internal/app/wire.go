@@ -82,8 +82,10 @@ func BuildDeps(_ context.Context, in BuildInput) (Deps, error) {
 	}
 
 	if in.Command != config.CmdAuth {
-		// firefly.New composes its own read-only and retry layers over the base transport.
-		deps.Firefly = firefly.New(in.Config.Firefly.URL, in.Secrets.FireflyToken, in.Env.Transport)
+		// firefly.New composes its own read-only and retry layers over the base transport. The run's
+		// logger goes in so a skipped split's DEBUG record reaches log_file (research R8).
+		deps.Firefly = firefly.New(in.Config.Firefly.URL, in.Secrets.FireflyToken, in.Env.Transport,
+			firefly.WithLogger(log))
 	}
 
 	if in.Command == config.CmdCheck && !in.Stdout {
@@ -129,12 +131,20 @@ func newLogger(in BuildInput, r *redact.Redactor) (*slog.Logger, func(), error) 
 	return logging.New(f, in.Env.Stderr, level, r), func() { _ = f.Close() }, nil
 }
 
-// newEnableBanking builds the Enable Banking client over a retrying, time-bounded HTTP client.
+// newEnableBanking builds the Enable Banking client over a retrying HTTP client whose every attempt
+// is time-bounded (httpx.RetryTransport). The base URL is the production API root unless a test set
+// Env.EnableBankingBaseURL, which stays empty outside a test (Env doc comment) so production always
+// calls enablebanking.DefaultBaseURL.
 func newEnableBanking(in BuildInput, r *redact.Redactor) *enablebanking.Client {
 	hc := httpx.NewClient(&httpx.RetryTransport{Base: in.Env.Transport})
 	signer := enablebanking.NewSigner(in.Config.EnableBanking.AppID, in.Secrets.PrivateKey, in.Env.Now)
 
-	return enablebanking.New(enablebanking.DefaultBaseURL, hc, signer, r)
+	baseURL := enablebanking.DefaultBaseURL
+	if in.Env.EnableBankingBaseURL != "" {
+		baseURL = in.Env.EnableBankingBaseURL
+	}
+
+	return enablebanking.New(baseURL, hc, signer, r)
 }
 
 // setAuthorizer picks the Authorizer implementation by provider name. The Enable Banking client
@@ -151,20 +161,35 @@ func setAuthorizer(deps *Deps, provider string, eb *enablebanking.Client, cfg co
 	}
 }
 
-// newNotifiers builds one notifier per configured channel. Telegram gets a time-bounded client
-// without the shared retry layer, since it handles its own 429 back-off (R12); the retry layer
-// would never retry its POSTs anyway.
+// newNotifiers builds one notifier per configured channel. Telegram gets a client whose every
+// attempt is time-bounded (httpx.TimeoutTransport) but without the shared retry layer, since it
+// handles its own 429 back-off (R12); the retry layer would never retry its POSTs anyway.
+// TelegramBaseURL and the email seams below are always their zero value outside a test (Env doc
+// comment), so production always posts to the public Bot API and dials the configured SMTP host
+// and port.
 func newNotifiers(in BuildInput) []notify.Notifier {
 	var notifiers []notify.Notifier
 
 	if tg := in.Config.Notify.Telegram; tg != nil {
-		hc := httpx.NewClient(in.Env.Transport)
-		notifiers = append(notifiers, telegram.New(in.Secrets.TelegramToken, tg.ChatIDs, hc, ""))
+		hc := httpx.NewClient(&httpx.TimeoutTransport{Base: in.Env.Transport})
+		notifiers = append(notifiers, telegram.New(in.Secrets.TelegramToken, tg.ChatIDs, hc, in.Env.TelegramBaseURL))
 	}
 
 	if em := in.Config.Notify.Email; em != nil {
-		notifiers = append(notifiers, email.New(*em, in.Secrets.SMTPPassword, nil))
+		notifiers = append(notifiers, newEmailNotifier(in, *em))
 	}
 
 	return notifiers
+}
+
+// newEmailNotifier builds the email notifier from cfg and, only when a test set Env.SMTPAddr,
+// points it at that address instead of cfg's host and port (config validation allows only the
+// privileged ports 587 and 465 there, which a fake SMTP server cannot bind).
+func newEmailNotifier(in BuildInput, cfg config.Email) *email.Notifier {
+	n := email.New(cfg, in.Secrets.SMTPPassword, in.Env.SMTPTLSConfig)
+	if in.Env.SMTPAddr != "" {
+		n = n.WithAddr(in.Env.SMTPAddr)
+	}
+
+	return n
 }

@@ -1,6 +1,6 @@
 [tools]
 go = "1.27"
-# golangci-lint must float to "latest" to always match CI's configured version.
-# CI uses "latest", so the development environment must too.
-golangci-lint = "latest"
+# golangci-lint is pinned to an exact release, and CI's golangci-lint-action pins the same one, so
+# a new linter release never changes what `task check` reports; bump both together.
+golangci-lint = "2.13.2"
 git-cliff = "2"

@@ -159,12 +159,14 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
     - else if `foreign_currency_code == A.currency` and `foreign_amount` is non-empty → use `foreign_amount`.
       This is the destination side of a cross-currency transfer, or data recorded before an account's
       currency changed;
-    - else the split is not comparable in A's currency. It is skipped and logged at DEBUG with the group id, masked account, date
-      and amount only, never the description. A bank transaction
-      it might have matched will surface as missing, which errs on the side of reporting.
+    - else the split is not comparable in A's currency. It is skipped and logged at DEBUG with the group id,
+      `account_id` (the Firefly III account id, an internal number rather than a bank identifier), date and
+      amount only, never the description; the run's logger is passed to the client, so the record reaches
+      `log_file` at `log_level: debug`. A bank transaction it might have matched will surface as missing,
+      which errs on the side of reporting.
     - Sign: `source_id == A` → negative; `destination_id == A` → positive.
   - **Group → FireflyEntry**: sum the signed amounts of A's comparable splits in the group into one entry
-    (FR-009). The date is the calendar-date prefix (`YYYY-MM-DD`) of the first split's `date` as sent. Firefly
+    (FR-009). The date is the calendar-date prefix (`YYYY-MM-DD`) of the first counted split's `date` as sent. Firefly
     renders dates in its own configured time zone, which is the date the owner typed in the UI, so the offset
     is not converted. The date tolerance absorbs any server/tool time-zone mismatch.
 - **Rationale**: Verified against the Firefly III source and API behavior:
@@ -174,11 +176,13 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
   - dates rendered in the server's time zone;
   - no API token scopes. A personal access token is full read/write, which is why FR-001 is enforced in code.
 - **Read-only enforcement (FR-001)**: the Firefly client is built on an `http.RoundTripper` wrapper that returns
-  an error for any method other than `GET` and `HEAD` before the request leaves the process. The client
+  an error for any method other than `GET` before the request leaves the process (constitution §I: the client
+  "MUST issue only `GET` requests"; `HEAD`, `OPTIONS` and extension methods are refused too). The client
   package exposes only `ListAccounts` and `ListAccountTransactions`. Tests confirm that
-  POST/PUT/PATCH/DELETE through the transport fail and never reach an `httptest` server, and that a redirect
-  is not followed.
-- **Errors**: 401 means "Firefly token rejected" and 404 means "account #N not found". Both come as
+  POST/PUT/PATCH/DELETE, HEAD, OPTIONS, TRACE, CONNECT and an extension method through the transport fail and
+  never reach an `httptest` server, and that a redirect is not followed.
+- **Errors**: 401 (or a 403, e.g. from a proxy) means "Firefly token rejected", reported in the digest as
+  "Firefly III unauthorized" rather than "unreachable", and 404 means "account #N not found". Both come as
   `{"message","exception"}`. A 422 has `{"message","errors"}`. 5xx, network errors and 429 (only ever from a
   reverse proxy, since Firefly has no API throttle) are retried per R12. 4xx responses other than 429 are
   never retried. A non-JSON body is reported by status code only.
@@ -231,11 +235,16 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
 
 - **Decision**: One shared `http.RoundTripper` retry wrapper (not used by Telegram, which has its own 429
   semantics). It retries at most 3 times on network errors, 5xx and 429, with exponential backoff of 1 s, 2 s,
-  4 s plus up to 20% jitter. Other 4xx responses are never retried. A `Retry-After` header (seconds or HTTP-date) replaces the backoff and is capped
-  at 60 s. If the requested wait is longer than the cap, the tool gives up and the account becomes unchecked
-  ("rate limited"). Only GET requests are retried. The interactive `auth` calls (`POST /auth`,
-  `POST /sessions`) are never retried, because the authorization code can be used only once. Per-request timeout is 30 s and the whole `check` run is
-  capped at 10 minutes.
+  4 s plus up to 20% jitter. Other 4xx responses are never retried. A `Retry-After` header (seconds or
+  HTTP-date) replaces the backoff and is capped at 60 s. If the requested wait is longer than the cap, the
+  tool gives up and the account becomes unchecked ("rate limited"). Only the idempotent, bodyless GET and HEAD
+  requests are retried (the Firefly client sends GET only). The interactive `auth` calls (`POST /auth`,
+  `POST /sessions`) are never retried, because the authorization code can be used only once. The timeout
+  is per attempt: each attempt, its response body read included, is bounded at 30 s, and a retry (with the
+  backoff or `Retry-After` wait before it) starts a fresh 30 s, so a 45 s `Retry-After` is waited out rather
+  than cut short. There is no timeout across one request's retries; the whole `check` (or `accounts`) run is
+  capped at 10 minutes by its context, and that cap bounds the waits too. Telegram gets the same 30 s
+  per-attempt bound without the retry layer.
 - **Testing**: `testing/synctest` (GA since Go 1.25) makes the backoff and `Retry-After` tests run instantly
   and deterministically.
 
@@ -295,7 +304,8 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
 - **Decision**:
   - **Task runner**: `go-task` (`Taskfile.yml`) with `setup`, `format`, `format:check`, `lint`, `test`
     (`go test -race ./...`), `build`, `check` (format:check → lint → test), `audit` (govulncheck), `clean`.
-  - **Pinned tooling**: `mise` (`.mise.toml`: `go = "1.27"`, `golangci-lint = "latest"`, `git-cliff = "2"`).
+  - **Pinned tooling**: `mise` (`.mise.toml`: `go = "1.27"`, `golangci-lint = "2.13.2"`, `git-cliff = "2"`; CI's
+    golangci-lint-action pins the same golangci-lint release).
   - **Lint**: golangci-lint v2 with the author's standard strict configuration, committed as `.golangci.yml`
     **verbatim**. Only the module path (gci prefix, gofumpt `module-path`) is adapted. Changes to it need
     explicit approval, the same as a dependency. It uses `default: none` plus an explicit linter list,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -61,6 +62,8 @@ type ffEntry struct {
 	date        string
 	amount      string
 	description string
+	// currency is the split's currency_code; empty means EUR, the fixture account's currency.
+	currency string
 }
 
 // txQuery is one GET /accounts/{id}/transactions request the fake Firefly III received.
@@ -153,6 +156,28 @@ func (n *recordingNotifier) Send(_ context.Context, d digest.Digest) []notify.Re
 	return []notify.Result{{Recipient: "100000001"}}
 }
 
+// failingNotifier is a notifier whose one recipient always fails, so a run's delivery fails for
+// every recipient.
+type failingNotifier struct{}
+
+// Name returns the fake channel name.
+func (failingNotifier) Name() string {
+	return "telegram"
+}
+
+// Send reports its one recipient as failed.
+func (failingNotifier) Send(context.Context, digest.Digest) []notify.Result {
+	return []notify.Result{{Recipient: "100000001", Err: errors.New("channel down")}}
+}
+
+// failingWriter is an io.Writer whose every write fails, standing in for a closed stderr.
+type failingWriter struct{}
+
+// Write always fails.
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write: broken pipe")
+}
+
 // fakeFirefly is an httptest Firefly III serving the anonymized accounts fixture and, for account
 // #1, transaction groups built from the case's ffEntry values. It records every transactions query.
 type fakeFirefly struct {
@@ -229,6 +254,11 @@ func groupsPage(accountID string, entries []ffEntry) map[string]any {
 			src, dst = "901", accountID
 		}
 
+		currency := e.currency
+		if currency == "" {
+			currency = "EUR"
+		}
+
 		data = append(data, map[string]any{
 			"type": "transactions",
 			"id":   e.group,
@@ -238,7 +268,7 @@ func groupsPage(accountID string, entries []ffEntry) map[string]any {
 					"transaction_journal_id": e.group + "0",
 					"type":                   e.kind,
 					"date":                   e.date + "T12:00:00+03:00",
-					"currency_code":          "EUR",
+					"currency_code":          currency,
 					"foreign_currency_code":  nil,
 					"amount":                 e.amount,
 					"foreign_amount":         nil,
@@ -639,7 +669,7 @@ func (s *CheckSuite) TestFireflyAccountsAreListedBeforeAnyBankCall() {
 
 	s.Run("unreachable", func() {
 		h := s.newHarness(nil, nil)
-		h.firefly.accountsStatus = http.StatusUnauthorized
+		h.firefly.accountsStatus = http.StatusNotFound
 
 		_, code := h.run(s.T().Context(), app.CheckOptions{})
 
@@ -715,6 +745,62 @@ func (s *CheckSuite) TestSummaryIsLoggedOnceAtInfoWithExactCounts() {
 		"deduplicated":       float64(1),
 		"void":               float64(1),
 	}, got)
+}
+
+// TestExcludedAccountIsCountedInTheSummaryOnly covers fj-xwu.13 (constitution §II: every set-aside
+// entry is counted in the run summary): an account excluded by an accounts: rule costs no bank
+// call and stays out of the digest, but the INFO run summary counts it as accounts_excluded.
+func (s *CheckSuite) TestExcludedAccountIsCountedInTheSummaryOnly() {
+	h := s.newHarness(nil, nil)
+	h.addUnmappedAccount([]bank.Transaction{s.bankTx("2026-09-15", "-3.00", bank.Booked, "ref-9", "ANON SPARE")})
+	h.cfg.Accounts = []config.AccountRule{{Bank: checkBankKey, IBAN: unmappedAccountIBAN, Exclude: true}}
+
+	rep, code := h.run(s.T().Context(), app.CheckOptions{})
+
+	s.Equal(0, code, "an excluded account is neither missing nor unchecked")
+	s.Empty(h.notifier.digests, "an excluded account never reaches the digest")
+	s.Len(h.provider.recorded(), 1, "an excluded account costs no bank call")
+	s.Equal(report.Summary{AccountsChecked: 1, AccountsExcluded: 1}, rep.Summary())
+
+	var summaries []map[string]any
+
+	for _, rec := range s.logRecords(h.fileLog) {
+		if _, ok := rec[summaryKey]; ok {
+			summaries = append(summaries, rec)
+		}
+	}
+
+	s.Require().Len(summaries, 1)
+	s.InDelta(1, summaries[0]["accounts_excluded"], 0)
+}
+
+// TestStderrFallbackFailureIsLoggedUnderItsOwnMessage covers fj-xwu.6.4: when every delivery failed
+// and even the FR-028 stderr fallback cannot be written, the ERROR record says so in its own words,
+// "stderr fallback failed", rather than reusing --stdout's "print digest failed", so the log tells
+// the two failures apart.
+func (s *CheckSuite) TestStderrFallbackFailureIsLoggedUnderItsOwnMessage() {
+	h := s.newHarness(
+		[]bank.Transaction{s.bankTx("2026-09-19", "-63.12", bank.Booked, "ref-1", "ANON GROCERY")}, nil,
+	)
+
+	deps := h.deps()
+	deps.Notifiers = []notify.Notifier{failingNotifier{}}
+	deps.Stderr = failingWriter{}
+
+	_, code := app.Check(s.T().Context(), deps, app.CheckOptions{})
+
+	s.Equal(2, code, "delivery failed for every recipient")
+
+	var messages []any
+
+	for _, rec := range s.logRecords(h.fileLog) {
+		if rec["level"] == slog.LevelError.String() {
+			messages = append(messages, rec["msg"])
+		}
+	}
+
+	s.Contains(messages, "stderr fallback failed")
+	s.NotContains(messages, "print digest failed", "that message belongs to a failed --stdout print")
 }
 
 // TestLogsNeverContainDescriptionsOrFullIBANs covers constitution §V: no bank or Firefly III

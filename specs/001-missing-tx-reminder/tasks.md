@@ -164,7 +164,9 @@ added after T010 and run before T018:
     `"****"`.
   - `MaskHash(h)` gives `"hash:" + first4 + "…" + last4`.
   - `New(secrets ...string).Scrub(s)` replaces every non-empty secret with `[REDACTED]`.
-  - `Scrub` masks IBAN-shaped substrings (`[A-Z]{2}\d{2}[A-Z0-9]{11,30}`) in free text.
+  - `Scrub` masks IBAN-shaped substrings (`[A-Z]{2}\d{2}[A-Z0-9]{11,30}`, case-insensitive) in free text,
+    and IBANs in print form (4-character groups separated by single spaces, e.g. `LT12 3456 7890 1234 5678`)
+    the same way; a run of words or a short number sequence is left alone.
   - A Telegram URL `https://api.telegram.org/bot<token>/sendMessage` has the token scrubbed even when it
     isn't in the secret list (`/bot[^/]+/` pattern).
 - [x] T012 Implement `internal/redact/redact.go`: `type Redactor struct` with regexes compiled in `New`, no
@@ -223,7 +225,7 @@ added after T010 and run before T018:
     YAML structs.
   - `validate.go`: structural validation in `Load`, plus `ValidateFor(cmd, stdout)` for per-command secret
     resolution (T014).
-  - `load.go`: `Load(path string, env func(string) string) (*Config, []string /*warnings*/, error)` using
+  - `load.go`: `Load(path string, env func(string) string) (*Config, error)` using
     `github.com/goccy/go-yaml` with `yaml.Strict()`. Run `go get github.com/goccy/go-yaml@latest`.
   - Config path resolution: `--config` flag, then `FIREFLY_JAR_CONFIG`, then `/etc/firefly-jar/config.yaml`.
   - Every config and secret file path goes through `filepath.Clean` before it is read (gosec G304). No
@@ -266,9 +268,11 @@ added after T010 and run before T018:
   - Context cancellation stops the waiting.
   - At most 3 retries (4 attempts), then the last response or error is returned.
 - [x] T019 Implement `internal/httpx/retry.go`: `RetryTransport{Base http.RoundTripper; MaxRetries int;
-  BaseDelay, MaxWait time.Duration; Jitter func() float64}`, with defaults 3, 1s, 60s and 20%. Implement
-  `internal/httpx/client.go`: `NewClient(rt http.RoundTripper) *http.Client` with a 30s timeout and
-  `CheckRedirect` returning `http.ErrUseLastResponse`. Make T018 pass.
+  BaseDelay, MaxWait, AttemptTimeout time.Duration; Jitter func() float64}`, with defaults 3, 1s, 60s, 30s
+  and 20%; every attempt runs under `internal/httpx/timeout.go`'s `TimeoutTransport` (a 30 s deadline per
+  attempt, released when the body is closed). Implement `internal/httpx/client.go`:
+  `NewClient(rt http.RoundTripper) *http.Client` with no client-wide timeout (it would span the retries and
+  `Retry-After` waits) and `CheckRedirect` returning `http.ErrUseLastResponse`. Make T018 pass.
 
 ### state: session file (contracts/state.md, FR-019, FR-037, R11)
 
@@ -386,9 +390,9 @@ run prints nothing and exits 0. The end-to-end version is T056.
 
 - [x] T031 [P] [US1] Write `ReadOnlySuite` in `internal/firefly/readonly_test.go`, registered in
   `internal/firefly/firefly_test.go`:
-  - POST, PUT, PATCH and DELETE through `ReadOnlyTransport` return `ErrWriteForbidden`, and the
-    `httptest.Server` hit counter stays **0**.
-  - GET and HEAD pass through.
+  - POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE, CONNECT and a made-up extension method through
+    `ReadOnlyTransport` return `ErrWriteForbidden`, and the `httptest.Server` hit counter stays **0**.
+  - Only GET passes through.
   - A 302 redirect to a second `httptest.Server` is **not followed**: the second server gets 0 hits and the
     client returns an error.
   - The `Authorization: Bearer <token>` header is sent with the token trimmed of whitespace and newlines, and
@@ -430,9 +434,10 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - Only `withdrawal`, `deposit` and `transfer` splits count. An unknown type string does not fail decoding.
   - Amount choice: `amount` if `currency_code == account currency`; else `foreign_amount` if
     `foreign_currency_code` matches; else the split is skipped with a DEBUG log carrying only the group id,
-    masked account, date and amount. The description is never logged (constitution §V).
+    `account_id` (the Firefly III account id), date and amount. The description is never logged
+    (constitution §V).
   - Sign: `source_id == account` → −, `destination_id == account` → +.
-  - Entry date is the `YYYY-MM-DD` prefix of the first split's `date`, so the fixture gives `2026-09-20`.
+  - Entry date is the `YYYY-MM-DD` prefix of the first counted split's `date`, so the fixture gives `2026-09-20`.
   - After 200 pages the result is `ErrDataIncomplete`. A 404 maps to `ErrNotFound`. A non-JSON error body
     yields the status code only.
 - [x] T036 [US1] Implement:
@@ -618,7 +623,8 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - Firefly is queried from `window.From − tolerance` to `today + tolerance`.
   - The bank is queried `from = window.From`.
   - One INFO summary record is written to the file log with `window`, `accounts_checked`,
-    `accounts_unchecked`, `matched`, `missing`, `deduplicated` and `void`.
+    `accounts_unchecked`, `accounts_excluded` (added by fj-xwu.13), `matched`, `missing`, `deduplicated` and
+    `void`.
 - [x] T052 [US1] Implement `internal/app/check.go`:
   - `type Deps struct{ Config *config.Config; State *state.State; Provider bank.Provider; Firefly
     *firefly.Client; Notifiers []notify.Notifier; Log *slog.Logger; Now func() time.Time; Stdout io.Writer }`.
@@ -834,18 +840,18 @@ Telegram failing and email working, the email is delivered and stderr shows a WA
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T077 [P] Write `PrivacySuite` in `internal/app/privacy_test.go` (SC-009). Run a full `check` with fixtures
+- [x] T077 [P] Write `PrivacySuite` in `internal/app/privacy_test.go` (SC-009). Run a full `check` with fixtures
   containing IBANs, a Firefly token, a Telegram token and an SMTP password. Then assert that the file log,
   stderr, the Telegram request bodies and the email DATA contain **no** secret and **no** unmasked IBAN.
   Also assert that the file log at `log_level: debug` contains **no** transaction description or counterparty
   name from the fixtures. Descriptions may appear only in the digest, and on stderr only when every delivery
   failed (FR-028).
-- [ ] T078 [P] Add a `ReadOnlyGuaranteeSuite` in `internal/app/readonly_test.go` (SC-003). Across a full `check`,
+- [x] T078 [P] Add a `ReadOnlyGuaranteeSuite` in `internal/app/readonly_test.go` (SC-003). Across a full `check`,
   `accounts` and a failure run, the Firefly fake records only GET requests and the Enable Banking fake records
   no payment-path requests (`/payments`).
-- [ ] T079 [P] Create `config.example.yaml` at the repo root, copied from contracts/config.md with placeholder
+- [x] T079 [P] Create `config.example.yaml` at the repo root, copied from contracts/config.md with placeholder
   values only.
-- [ ] T080 [P] Write `README.md` for users:
+- [x] T080 [P] Write `README.md` for users:
   - what the tool does, and that it is a reminder, not an importer;
   - install (`task build`) and the configuration reference (link `config.example.yaml`);
   - `auth`, `accounts --ids` and `check --stdout` walkthroughs;
@@ -854,14 +860,14 @@ Telegram failing and email working, the email is delivered and stderr shows a WA
   - an exit code table;
   - troubleshooting for consent expiry and "ambiguous mapping".
   - Never mention other projects or local paths.
-- [ ] T081 Run `task check`, `task audit` and a coverage report into `cover.out`
+- [x] T081 Run `task check`, `task audit` and a coverage report into `cover.out`
   (`go test ./... -coverpkg=./... -coverprofile=cover.out`, as defined in `Taskfile.yml`). Target at least 80% total, and investigate any
   package below that, especially `reconcile`, `mapping` and `firefly`.
 - [ ] T082 Run the `specs/001-missing-tx-reminder/quickstart.md` validation against the owner's real instances: sections 3–8, including the
   failure drills table. Also time one real `check` (`/usr/bin/time -v firefly-jar check --stdout`) and compare
   the wall-clock time with SC-008 (under 2 minutes for up to 10 accounts and 30 days). Record the observed
   results in the PR description, not in tracked files.
-- [ ] T083 Constitution compliance review against `.specify/memory/constitution.md` before finish-branch:
+- [x] T083 Constitution compliance review against `.specify/memory/constitution.md` before finish-branch:
   - Walk Principles I–VI and the Development Workflow checks.
   - No Firefly write path.
   - No secret or PII in logs.

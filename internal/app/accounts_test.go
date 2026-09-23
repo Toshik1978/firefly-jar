@@ -303,6 +303,35 @@ func (s *AccountsCommandSuite) TestExitCodeZeroWhenEveryNonExcludedAccountIsMapp
 	s.Require().Len(lines, 5, "one header line plus main, card, bank2's auto-mapped EUR account and closed")
 }
 
+// TestBankSuppliedTextIsStrippedBeforePrinting covers the terminal side of the digest's rule: an
+// account name the bank supplied can carry a line break, a tab or a bidi override, which would
+// add a fake row, shift the table's columns or reorder what the owner reads. The accounts table
+// prints it only after the same strip the digest applies, so the row stays one row of six cells.
+func (s *AccountsCommandSuite) TestBankSuppliedTextIsStrippedBeforePrinting() {
+	h := s.newHarness(false)
+
+	st, _, err := state.Load(h.statePath)
+	s.Require().NoError(err)
+
+	session := st.Sessions[acctBank1]
+	session.Accounts[0].Name = "Ma\u202ein\nFAKE\tROW"
+	st.Put(acctBank1, session)
+	s.Require().NoError(state.Save(h.statePath, st))
+
+	code := h.run("accounts", "--config", h.configPath)
+
+	s.Equal(0, code)
+
+	lines := s.outputLines(h)
+	s.Require().Len(lines, 5, "a newline in a bank-supplied name must not add a row")
+	s.NotContains(h.stdout.String(), "\u202e", "a bidi override must never reach the terminal")
+
+	s.Equal([]string{
+		acctBank1, redact.MaskIBAN(acctMainIBAN), "MainFAKEROW", acctMainCurrency, "auto",
+		"#" + acctMainFireflyID + " " + acctMainFireflyName,
+	}, splitColumns(lines[1]), "a tab in a bank-supplied name must not add a column")
+}
+
 // TestReadOnly covers contracts/cli.md's read-only guarantee (FR-017, constitution §I): accounts
 // makes no bank-provider call because it reads accounts from the state snapshot, the Firefly III
 // fake sees only GET requests, and the state file itself is left byte-for-byte and mtime-for-mtime

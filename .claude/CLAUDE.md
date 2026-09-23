@@ -24,9 +24,9 @@ The constitution wins every conflict. If a change needs to break it, stop and as
 ## Invariants (enforced by tests; out of scope to relax)
 
 1. **Read-only against Firefly III.** The Firefly client exposes list methods only. Its transport rejects every
-   method except `GET`/`HEAD` before the request leaves the process, and a test proves that
-   `POST`/`PUT`/`PATCH`/`DELETE` never reach the server. No feature may create, edit or delete Firefly III
-   data, including "helpful" auto-add or one-click import.
+   method except `GET` before the request leaves the process, and a test proves that `POST`/`PUT`/`PATCH`/
+   `DELETE`, `HEAD`, `OPTIONS` and any other method never reach the server. No feature may create, edit or
+   delete Firefly III data, including "helpful" auto-add or one-click import.
 2. **Read-only at the bank.** Account-information consent only. No payment endpoints, and no `Psu-*` headers
    (the tool runs unattended and must not claim otherwise).
 3. **Nothing is dropped silently.** Every bank transaction in the window ends up matched, missing,
@@ -49,6 +49,7 @@ same checks.
 | `task test` | `go test -race ./...`. Never calls a live service. |
 | `task build` | static binary (`CGO_ENABLED=0`, `-trimpath`) from `./cmd/firefly-jar` |
 | `task audit` | `govulncheck ./...` |
+| `task cover` | `go test ./... -coverpkg=./... -coverprofile=cover.out` |
 
 Live smoke tests exist only behind the `live` build tag (`go test -tags live …`) and need a real config. They
 are never part of `task check`.
@@ -122,6 +123,9 @@ Write comments that explain *why*, not *what*.
 All Go tests use testify suites. Three rules, non-negotiable:
 
 1. **One entry point per package.** Exactly one top-level `func Test<Package>(t *testing.T)` per package.
+   Where a build tag adds suites (package `app`'s `live` smoke test), the entry point is declared twice, in
+   `app_test.go` (`//go:build !live`) and `app_live_test.go` (`//go:build live`), with the same `suite.Run`
+   lines plus the tagged suites, so each build still has exactly one; keep the two lists in sync.
 2. **The entry point only wires suites.** It contains only `suite.Run(t, new(...))` calls, one per
    `suite.Suite`.
 3. **All real tests are suite methods.** Use suite assertions (`s.Equal`, `s.Require().NoError`, …), never a

@@ -88,6 +88,10 @@ type fakeAuthorizer struct {
 	completeErr error
 	revokeErr   error
 
+	// onComplete, when set, runs inside Complete before it returns, while auth is waiting on the
+	// provider: the point where an overlapping auth run for another bank could save the state file.
+	onComplete func()
+
 	mu            sync.Mutex
 	beginCalls    []config.Bank
 	completeCalls []completeCall
@@ -114,6 +118,10 @@ func (f *fakeAuthorizer) Complete(
 	f.mu.Lock()
 	f.completeCalls = append(f.completeCalls, completeCall{bank: b, pending: p, pasted: pastedRedirect})
 	f.mu.Unlock()
+
+	if f.onComplete != nil {
+		f.onComplete()
+	}
 
 	if f.completeErr != nil {
 		return state.Session{}, f.completeErr
@@ -278,6 +286,35 @@ func (s *AuthCommandSuite) TestSuccessSavesSessionAndRevokesThePreviousOneAfterS
 	s.Require().NoError(json.Unmarshal(revokes[0].stateAtCall, &onDisk))
 	s.Equal(authNewSessionID, onDisk.Sessions[authBankKey].SessionID,
 		"the new session was already saved to disk when Revoke ran")
+}
+
+// TestOverlappingAuthForAnotherBankIsNotDropped covers fj-xwu.11: auth loads the state file before
+// the owner's browser login, and another `auth` run for a different bank can save the file in the
+// meantime. The save must start from the file as it is on disk right then, so the other run's newer
+// session survives instead of being overwritten with the copy loaded minutes earlier.
+func (s *AuthCommandSuite) TestOverlappingAuthForAnotherBankIsNotDropped() {
+	const overlappingSessionID = "00000000-0000-0000-0000-0000000000ff"
+
+	h := s.newHarness()
+	h.factory.authorizer.onComplete = func() {
+		st, _, err := state.Load(h.statePath)
+		s.Require().NoError(err)
+
+		other := s.otherSession()
+		other.SessionID = overlappingSessionID
+		st.Put(authOtherBankKey, other)
+		s.Require().NoError(state.Save(h.statePath, st))
+	}
+
+	code := h.run("auth", authBankKey, "--config", h.configPath)
+
+	s.Equal(0, code)
+
+	st, _, err := state.Load(h.statePath)
+	s.Require().NoError(err)
+	s.Equal(authNewSessionID, st.Sessions[authBankKey].SessionID)
+	s.Equal(overlappingSessionID, st.Sessions[authOtherBankKey].SessionID,
+		"the overlapping run's newer session for the other bank survives this run's save")
 }
 
 // TestRevokeFailureIsOnlyAWarning covers the ruling that a failed best-effort revoke of the previous
@@ -458,28 +495,17 @@ func (s *AuthCommandSuite) buildHarness(withPriorSession bool) *authHarness {
 // authConfigYAML renders the case's config: two banks, so a case can prove that authorizing one
 // leaves the other's session untouched.
 func (*AuthCommandSuite) authConfigYAML(dir string) string {
-	var b strings.Builder
-
-	b.WriteString("timezone: Europe/Vilnius\n")
-	b.WriteString("window_days: 30\n")
-	b.WriteString("date_tolerance_days: 3\n")
-	b.WriteString("consent_warn_days: 7\n")
-	b.WriteString("state_file: " + filepath.Join(dir, "state.json") + "\n")
-	b.WriteString("log_file: " + filepath.Join(dir, "firefly-jar.log") + "\n")
-	b.WriteString("log_level: info\n")
-	b.WriteString("firefly:\n")
-	b.WriteString("  url: https://firefly.example.com\n")
-	b.WriteString("enablebanking:\n")
-	b.WriteString("  app_id: 00000000-0000-0000-0000-000000000000\n")
-	b.WriteString("  private_key_file: " + filepath.Join(dir, "enablebanking.pem") + "\n")
-	b.WriteString("  redirect_url: https://example.com/eb-callback\n")
-	b.WriteString("banks:\n")
-	b.WriteString("  " + authBankKey + ": { name: " + authBankName + ", country: " + authBankCountry +
-		", display: " + authBankDisplay + " }\n")
-	b.WriteString("  " + authOtherBankKey + ": { name: " + authOtherName + ", country: LT, display: " +
-		authOtherName + " }\n")
-
-	return b.String()
+	return buildConfigYAML(configOpts{
+		timezone:       "Europe/Vilnius",
+		stateFile:      filepath.Join(dir, "state.json"),
+		logFile:        filepath.Join(dir, "firefly-jar.log"),
+		fireflyURL:     "https://firefly.example.com",
+		privateKeyFile: filepath.Join(dir, "enablebanking.pem"),
+		banks: []configBank{
+			{key: authBankKey, name: authBankName, country: authBankCountry, display: authBankDisplay},
+			{key: authOtherBankKey, name: authOtherName, country: "LT", display: authOtherName},
+		},
+	})
 }
 
 // writeState saves a state file that always carries authOtherBankKey's session and, when

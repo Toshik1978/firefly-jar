@@ -14,8 +14,11 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
 
-// authTimeout caps one whole auth run, the owner's browser login included, so a hung provider or an
-// abandoned prompt can never keep the process alive for good (R12).
+// authTimeout is the deadline on one auth run's context, so a hung provider call (Begin, Complete,
+// Revoke) can never keep the process alive for good (R12). It does not bound the wait for the pasted
+// redirect: that is a plain blocking read of stdin, which a context cannot interrupt, so an abandoned
+// prompt waits until stdin is closed (Ctrl-D, or the terminal going away). A paste that arrives after
+// the deadline still fails, because the Complete call that follows runs on the expired context.
 const authTimeout = 10 * time.Minute
 
 // errNoRedirect is a paste that carried nothing, so there is no redirect to complete the consent with.
@@ -72,8 +75,9 @@ func (c *cli) runAuth(ctx context.Context, bankKey string) int {
 }
 
 // authorize runs the consent flow against deps.Authorizer alone, so it never depends on which
-// provider implements it. Nothing is written until Complete has returned a session, and the
-// previous session of the bank is revoked only once the new one is saved.
+// provider implements it. Nothing is written until Complete has returned a session; the state file
+// is then re-read so the save carries every other bank's session as it is on disk at that moment,
+// and the previous session of the bank is revoked only once the new one is saved.
 func (c *cli) authorize(ctx context.Context, deps Deps, bankKey string) error {
 	if deps.Authorizer == nil {
 		return errNoAuthorizer
@@ -100,12 +104,9 @@ func (c *cli) authorize(ctx context.Context, deps Deps, bankKey string) error {
 		return fmt.Errorf("complete consent: %w", err)
 	}
 
-	previous, hadPrevious := deps.State.Sessions[bankKey]
-
-	deps.State.Put(bankKey, session)
-
-	if err = state.Save(deps.Config.StateFile, deps.State); err != nil {
-		return fmt.Errorf("save state: %w", err)
+	previous, hadPrevious, err := saveSession(deps.Config.StateFile, bankKey, session)
+	if err != nil {
+		return err
 	}
 
 	if hadPrevious && previous.SessionID != "" && previous.SessionID != session.SessionID {
@@ -119,6 +120,28 @@ func (c *cli) authorize(ctx context.Context, deps Deps, bankKey string) error {
 		countAccounts(len(session.Accounts)), civil.DateOf(session.ValidUntil.In(deps.Config.Location)))
 
 	return nil
+}
+
+// saveSession stores session as bankKey's in the state file at path and returns the session it
+// replaced, if any. The state loaded before the browser login may be minutes old by now, and another
+// auth run for a different bank may have saved in the meantime, so it starts from the file as it is
+// right now: that run's session is kept rather than overwritten with the stale copy. The reload's
+// warnings were already logged by the first load.
+func saveSession(path, bankKey string, session state.Session) (state.Session, bool, error) {
+	current, _, err := state.Load(path)
+	if err != nil {
+		return state.Session{}, false, fmt.Errorf("reload state: %w", err)
+	}
+
+	previous, hadPrevious := current.Sessions[bankKey]
+
+	current.Put(bankKey, session)
+
+	if err = state.Save(path, current); err != nil {
+		return state.Session{}, false, fmt.Errorf("save state: %w", err)
+	}
+
+	return previous, hadPrevious, nil
 }
 
 // readRedirect reads the one line the owner pasted. A final line without a newline still counts,

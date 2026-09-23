@@ -25,7 +25,7 @@ const maxPages = 200
 const maxPageBytes = 32 << 20
 
 // Client is a read-only Firefly III API client (FR-001, constitution §I): its transport chain
-// rejects every method but GET and HEAD before a request leaves the process, so no caller mistake
+// rejects every method but GET before a request leaves the process, so no caller mistake
 // can turn a full-access personal token into a write against Firefly III.
 type Client struct {
 	baseURL string
@@ -34,18 +34,22 @@ type Client struct {
 	logger  *slog.Logger
 }
 
+// Option configures a Client built by New. Options only set up the client; none can widen what
+// it sends, which stays GET only.
+type Option func(*Client)
+
 // New builds a Client for baseURL, authenticating every request with token, trimmed of
 // surrounding whitespace and newlines (a token loaded from a file commonly ends with one). base is
 // the transport New's retry and read-only layers wrap; a nil base uses http.DefaultTransport. The
 // composed chain is ReadOnlyTransport wrapping httpx.RetryTransport wrapping base, inside
 // httpx.NewClient, so a write request never leaves the process and a redirect is never followed
-// (research R8, R12). The client logs nothing until a logger is wired in with withLogger.
-func New(baseURL, token string, base http.RoundTripper) *Client {
+// (research R8, R12). The client logs nothing unless WithLogger is passed.
+func New(baseURL, token string, base http.RoundTripper, opts ...Option) *Client {
 	if base == nil {
 		base = http.DefaultTransport
 	}
 
-	return &Client{
+	c := &Client{
 		baseURL: baseURL,
 		token:   strings.TrimSpace(token),
 		hc: httpx.NewClient(&ReadOnlyTransport{
@@ -53,15 +57,23 @@ func New(baseURL, token string, base http.RoundTripper) *Client {
 		}),
 		logger: slog.New(slog.DiscardHandler),
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
-// withLogger returns a shallow copy of c that logs to logger. It stays unexported so New's
-// signature does not grow and the package keeps exposing only its two list methods.
-func (c *Client) withLogger(logger *slog.Logger) *Client {
-	clone := *c
-	clone.logger = logger
-
-	return &clone
+// WithLogger makes the client log to logger: today only the DEBUG record for a split skipped as
+// not comparable in the account's currency (research R8), which explains why a Firefly III entry
+// the owner did enter was not matched. A nil logger keeps the default, which discards everything.
+func WithLogger(logger *slog.Logger) Option {
+	return func(c *Client) {
+		if logger != nil {
+			c.logger = logger
+		}
+	}
 }
 
 // get sends an authenticated GET for path and query q, and returns the raw response for a caller

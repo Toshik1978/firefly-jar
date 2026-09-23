@@ -53,7 +53,7 @@ dominated by provider latency, so accounts are fetched sequentially per bank to 
 - About 4 fetches per account per day at the bank (R7).
 - No terminal output on clean or missing-found runs (FR-039).
 - Money is never handled as float (FR-007).
-- 10-minute run cap; 30 s per request.
+- 10-minute run cap; 30 s per HTTP attempt (each retry gets its own 30 s).
 
 **Scale/Scope**: Single user, 1–5 banks, ≤ 20 accounts, ≤ a few hundred transactions per window.
 
@@ -71,7 +71,8 @@ dominated by provider latency, so accounts are fetched sequentially per bank to 
 | VI. Simple, Unattended Operation | One-shot binary with no scheduler or server, distinct exit codes, fail-fast config, stdlib-first with every dependency justified, slog summary. | PASS | PASS: a small set of justified runtime dependencies — YAML (R13), decimal arithmetic (R15), CLI parsing (R19) — plus a vendored copy, not a dependency, for civil dates (R19); testify is test-only (R17); oapi-codegen rejected (R1) |
 | Constraints | `gofmt`, `go vet`, `go test -race` gates; exact decimals; explicit time zones. | PASS | PASS: `task check` covers all three gates (R17); `domain.Amount` (`shopspring/decimal`) and `civil.Date` (R15) |
 
-Two recorded TDD deviations for scaffolding and declaration-only code; see Complexity Tracking.
+Complexity Tracking records the deviations: TDD exceptions for scaffolding, declaration-only code and
+verification-only tasks, the owner-approved dependency change, and the test-only seams.
 
 ## Project Structure
 
@@ -80,7 +81,7 @@ Two recorded TDD deviations for scaffolding and declaration-only code; see Compl
 ```text
 specs/001-missing-tx-reminder/
 ├── plan.md              # This file
-├── research.md          # Phase 0: decisions R1–R18 (+R8a)
+├── research.md          # Phase 0: decisions R1–R19 (+R8a)
 ├── data-model.md        # Phase 1: domain types, mapping, reconcile algorithm, exit rules
 ├── quickstart.md        # Phase 1: validation and run guide
 ├── contracts/
@@ -96,7 +97,7 @@ specs/001-missing-tx-reminder/
 
 ```text
 cmd/firefly-jar/
-└── main.go                 # flag parsing, subcommand dispatch, os.Exit(code)
+└── main.go                 # os.Exit(app.Run(os.Args[1:], …)); the cobra command tree lives in internal/app
 
 internal/
 ├── domain/                 # Amount (exact decimal, shopspring/decimal), Window (built on internal/civil)
@@ -104,7 +105,7 @@ internal/
 ├── config/                 # YAML load (strict), env/file secret resolution, validation
 ├── logging/                # slog multi-handler (file JSON + stderr WARN+), redacting ReplaceAttr
 ├── redact/                 # IBAN masking, secret scrubbing for errors and URLs
-├── httpx/                  # retry RoundTripper (backoff, Retry-After), timeouts
+├── httpx/                  # retry RoundTripper (backoff, Retry-After), per-attempt timeout RoundTripper
 ├── state/                  # state file model, atomic 0600 write, load and validate
 ├── bank/                   # Provider and Authorizer interfaces, BankAccount, BankTransaction, error kinds
 │   └── enablebanking/      # JWT signer, auth flow, accounts/transactions client, normalization
@@ -116,7 +117,7 @@ internal/
 ├── notify/                 # Notifier interface, fan-out, delivery results
 │   ├── telegram/           # sendMessage, UTF-16-aware splitting, 429 handling
 │   └── email/              # net/smtp STARTTLS/implicit TLS, RFC 5322 message
-└── app/                    # CLI dispatch (Run(args, stdin, stdout, stderr) int), check / auth / accounts orchestration
+└── app/                    # cobra CLI (Run(args, stdin, stdout, stderr) int), check / auth / accounts orchestration
 
 testdata/                   # anonymized fixtures (enablebanking/*.json, firefly/*.json), golden digests
 
@@ -154,3 +155,8 @@ packages (`_test.go`). Shared fixtures live in `testdata/`.
 |-----------|------------|-------------------------------------|
 | T006: `main.go` and `cli.go` stub written without a failing test first (§III step 2) | Scaffolding so `task check` has a buildable module before any test can compile. It has no behavior beyond "print usage, exit 2". | Writing `CLISuite` first needs the testify dependency and suite layout from Phase 2. The stub's behavior is pinned by `CLISuite` in T053 before any real logic lands. |
 | T025: `internal/firefly/types.go` declared without its own test (§III step 2) | Declarations only (`Account`, `Entry`) with no methods or behavior. It unblocks `mapping` and `reconcile` to run in parallel with the Firefly client. | A test of plain struct fields asserts nothing. The types are exercised test-first by T034, T035, T037 and T039. |
+| T074, T075, T076: no RED phase observed (§III step 2). `FailFastSuite` (T074) and the US4 acceptance suite (T076) passed on arrival, and T075 ("make T074 pass") changed no production code | The fail-fast ordering, delivery fallback and per-bank isolation they pin were already built test-first by earlier tasks (T070–T073 and Phases 3–5). T074 proved each case's sensitivity by mutating the production code, seeing the case fail, and reverting | Deleting working code to stage an artificial RED would add risk and prove nothing the mutation check did not. The suites stay as regression pins |
+| T081: coverage tests added after the code they cover (§III step 2) | `bank.Status.String` and several `state` Load/Save error paths had no test. T081's 80% coverage target called for tests over existing behaviour, with no production change | Rewriting the covered code to stage a RED would change nothing a reviewer could observe. The new tests pin the existing behaviour |
+| Dependency set widened after planning, owner-approved 2026-09-22 (§VI, justification in Technical Context, R15, R19) | `github.com/shopspring/decimal` v1.4.0 backs `domain.Amount`, a named exception to the no-release-before-2025-01-01 rule. `github.com/spf13/cobra` parses the CLI and brings `github.com/spf13/pflag` and `github.com/inconshreveable/mousetrap` in as indirect dependencies. `internal/civil` is a trimmed copy of `cloud.google.com/go/civil`'s `Date` with its Apache-2.0 header kept. `go.yaml.in/yaml/v3` is an indirect, test-only dependency of testify | The original stdlib-plus-go-yaml plan had a hand-rolled minor-units/scale `Amount`, a hand-rolled date type and `flag.NewFlagSet` subcommands. That meant bespoke decimal normalization, rounding and date arithmetic, which well-tested libraries already provide |
+| fj-xwu.15: package `app`'s `TestApp` is declared twice, in `app_test.go` (`//go:build !live`) and `app_live_test.go` (`//go:build live`, the same `suite.Run` lines plus `LiveSuite`) | `LiveSuite` must stay behind the `live` tag, out of `task check`, while each build keeps exactly one `Test<Package>` that only calls `suite.Run` (`.claude/CLAUDE.md` Testing rules 1 and 2) | A second `TestAppLive` entry point broke rule 1 under the `live` tag, and a build-tagged helper returning the suite list would put a non-`suite.Run` call in the entry point, breaking rule 2. The cost is 14 duplicated `suite.Run` lines to keep in sync |
+| T077, T078: test-only seams on `app.Env` (`TelegramBaseURL`, `SMTPTLSConfig`, `SMTPAddr`, `EnableBankingBaseURL`) and `email.Notifier.WithAddr` (§VI YAGNI) | The privacy and read-only suites drive the real Telegram, email and Enable Banking clients against in-process fakes. Config validation allows only SMTP ports 587 and 465, which a fake server cannot bind | `app.Run`, the only entry point `main` uses, leaves every seam at its zero value, and no config key, env var or flag reaches them. Substituting a fake `Provider` or `Notifier` instead would leave the real clients' request bodies and headers unchecked |

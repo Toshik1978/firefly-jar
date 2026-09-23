@@ -24,8 +24,9 @@ type Hint struct {
 }
 
 // hint implements step 6 for the missing transaction tx: among the Taken and NearMiss candidates in
-// its bucket it picks the nearest one, then the earlier date, then the lower group id, preferring
-// Taken at an equal distance. It returns nil when there is no candidate.
+// its bucket it picks the nearest one, then the earlier date, then the lower group id. A Taken
+// candidate lies within tolerance and a NearMiss one beyond it, so the two kinds never tie on
+// distance and the nearest one is always the right kind. It returns nil when there is no candidate.
 func (b buckets) hint(tx *bank.Transaction, tolerance int) *Hint {
 	var (
 		best     *Hint
@@ -33,7 +34,7 @@ func (b buckets) hint(tx *bank.Transaction, tolerance int) *Hint {
 	)
 
 	// The bucket is already ordered by Date and then GroupID, so replacing the best only on a
-	// strictly better distance or kind leaves the date and group id tie-breaks to that order.
+	// strictly smaller distance leaves the date and group id tie-breaks to that order.
 	for _, s := range b[tx.Amount.Key()] {
 		dist := daysApart(tx.Date, s.entry.Date)
 
@@ -42,7 +43,7 @@ func (b buckets) hint(tx *bank.Transaction, tolerance int) *Hint {
 			continue
 		}
 
-		if best == nil || dist < bestDist || (dist == bestDist && kind == Taken && best.Kind == NearMiss) {
+		if best == nil || dist < bestDist {
 			best = &Hint{GroupID: s.entry.GroupID, Date: s.entry.Date, Kind: kind}
 			bestDist = dist
 		}

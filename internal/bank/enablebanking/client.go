@@ -23,7 +23,7 @@ const (
 	maxErrorBodyBytes = 64 << 10
 )
 
-// Client is a read-only Enable Banking API client (constitution §II): account information only,
+// Client is a read-only Enable Banking API client (constitution §I): account information only,
 // no payment endpoint, and no Psu-* header, because the tool runs unattended. redirectURL and
 // psuType are unset until WithAuthConfig is called; Transactions never reads them, only Begin does.
 type Client struct {

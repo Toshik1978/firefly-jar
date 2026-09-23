@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -40,15 +41,35 @@ var errNoCommand = errors.New("no command given")
 // Env is everything a run takes from its process: the console streams, the environment, the
 // clock, the base transport of every outgoing HTTP client (nil means http.DefaultTransport) and the
 // Factory that builds a command's dependencies. Tests inject all of it, so a run never touches the
-// real console, environment or network.
+// real console, environment or network. TelegramBaseURL, SMTPTLSConfig, SMTPAddr and
+// EnableBankingBaseURL exist only so a test can point a command's real clients at an in-process
+// fake: production (Run) never sets them, so BuildDeps keeps posting to the public Bot API, dialing
+// the configured SMTP host and port, and calling the production Enable Banking API root.
 type Env struct {
-	Stdin     io.Reader
-	Stdout    io.Writer
-	Stderr    io.Writer
-	Getenv    func(string) string
-	Now       func() time.Time
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+	Getenv func(string) string
+	Now    func() time.Time
+	// Transport is the base transport of every outgoing HTTP client; nil means http.DefaultTransport.
 	Transport http.RoundTripper
-	Factory   Factory
+	// TelegramBaseURL overrides the Bot API base URL a check's Telegram notifier posts to. Empty
+	// means the public Bot API (telegram.New's own default).
+	TelegramBaseURL string
+	// SMTPTLSConfig overrides the trust roots a check's email notifier's TLS handshake verifies
+	// against. Nil means the system roots (email.New's own default).
+	SMTPTLSConfig *tls.Config
+	// SMTPAddr overrides the host:port a check's email notifier dials, instead of the address its
+	// notify.email.host and notify.email.port build. Config validation allows only ports 587 and
+	// 465 for those, both privileged, so a fake SMTP server needs this seam to be reachable at all.
+	// Empty means dial the configured host and port (email.New's own default).
+	SMTPAddr string
+	// EnableBankingBaseURL overrides the Enable Banking API root every command's Enable Banking
+	// client requests against, instead of enablebanking.DefaultBaseURL. Empty means the production
+	// root, so a run never reaches this field unless a test sets it (SC-003: an end-to-end test
+	// needs the real client talking to an in-process fake, not a Provider substitute).
+	EnableBankingBaseURL string
+	Factory              Factory
 }
 
 // Factory builds the dependencies of one command from its validated input. BuildDeps is the
@@ -300,14 +321,12 @@ func (c *cli) prepare(cmd config.Command, stdout bool) (BuildInput, []string, er
 // validated loads the config and validates it for cmd, resolving only cmd's secrets. The returned
 // input carries no state yet, so a command can reject its own arguments before the state is read.
 func (c *cli) validated(cmd config.Command, stdout bool) (BuildInput, []string, error) {
-	cfg, warnings, err := config.Load(config.ResolvePath(c.configPath, c.env.Getenv), c.env.Getenv)
+	cfg, err := config.Load(config.ResolvePath(c.configPath, c.env.Getenv), c.env.Getenv)
 	if err != nil {
-		return BuildInput{}, warnings, fmt.Errorf("load: %w", err)
+		return BuildInput{}, nil, fmt.Errorf("load: %w", err)
 	}
 
-	secrets, more, err := cfg.ValidateFor(cmd, stdout)
-	warnings = append(warnings, more...)
-
+	secrets, warnings, err := cfg.ValidateFor(cmd, stdout)
 	if err != nil {
 		return BuildInput{}, warnings, fmt.Errorf("validate: %w", err)
 	}

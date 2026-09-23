@@ -205,6 +205,14 @@ func (s *FanOutSuite) TestMaskRecipient() {
 		{name: "negative telegram group id keeps last four", in: "-1001234567890", want: "…7890"},
 		{name: "four characters becomes asterisks", in: "1234", want: "****"},
 		{name: "empty string becomes asterisks", in: "", want: "****"},
+		// A malformed recipient must not smuggle its raw tail into a log line or the digest.
+		{name: "email with CR LF becomes asterisks", in: "me@example.com\r\nBcc: x@example.com", want: "****"},
+		{name: "chat id with a control character becomes asterisks", in: "123456789\x1b[2J", want: "****"},
+		{name: "email with a bidi override becomes asterisks", in: "me@exa\u202emple.com", want: "****"},
+		{name: "chat id with a zero-width space becomes asterisks", in: "12345\u200b6789", want: "****"},
+		{name: "two at signs becomes asterisks", in: "me@x@example.com", want: "****"},
+		{name: "display-name form becomes asterisks", in: "Me <me@example.com>", want: "****"},
+		{name: "empty domain becomes asterisks", in: "me@", want: "****"},
 	}
 
 	for _, tc := range cases {

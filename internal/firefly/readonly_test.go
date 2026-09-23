@@ -12,7 +12,7 @@ import (
 
 // ReadOnlySuite covers the Firefly III read-only transport guard (T031, FR-001, constitution §I,
 // research R8): every write method is rejected by ReadOnlyTransport before the request leaves the
-// process -- both in isolation and as wired into a client built by New -- GET and HEAD pass
+// process -- both in isolation and as wired into a client built by New -- GET passes
 // through, a redirect is never followed, and the unexported (*Client).get helper sends the headers
 // R8 requires. It is the RED half of T032: every case here fails today for lack of a production
 // ReadOnlyTransport, ErrWriteForbidden, Client, New, and get.
@@ -20,14 +20,20 @@ type ReadOnlySuite struct {
 	suite.Suite
 }
 
-// writeMethods lists every HTTP method the transport must reject, per FR-001.
-func (s *ReadOnlySuite) writeMethods() []string {
-	return []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
+// rejectedMethods lists every HTTP method the transport must reject, per FR-001 and constitution §I
+// ("MUST issue only GET requests"): the four write verbs, every other standard method, and a
+// made-up extension method, so the guard is an allow-list of one rather than a deny-list.
+func (s *ReadOnlySuite) rejectedMethods() []string {
+	return []string{
+		http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+		http.MethodHead, http.MethodOptions, http.MethodTrace, http.MethodConnect,
+		"PROPFIND",
+	}
 }
 
-// readMethods lists every HTTP method the transport must pass through unchanged.
+// readMethods lists every HTTP method the transport must pass through unchanged: GET only.
 func (s *ReadOnlySuite) readMethods() []string {
-	return []string{http.MethodGet, http.MethodHead}
+	return []string{http.MethodGet}
 }
 
 // countingServer starts an httptest.Server that answers every request with status and counts how
@@ -47,7 +53,7 @@ func (s *ReadOnlySuite) countingServer(status int) (*httptest.Server, *atomic.In
 // directly, without going through an *http.Client, still rejects every write method with
 // ErrWriteForbidden and never lets the request reach the server (hit counter stays 0).
 func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsDirectly() {
-	for _, method := range s.writeMethods() {
+	for _, method := range s.rejectedMethods() {
 		s.Run(method, func() {
 			server, hits := s.countingServer(http.StatusOK)
 			defer server.Close()
@@ -72,7 +78,7 @@ func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsDirectly() {
 // TestRoundTripBlocksWriteMethodsThroughHTTPClient asserts the same rejection when
 // ReadOnlyTransport is wired as an *http.Client's Transport, the shape a real caller uses.
 func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsThroughHTTPClient() {
-	for _, method := range s.writeMethods() {
+	for _, method := range s.rejectedMethods() {
 		s.Run(method, func() {
 			server, hits := s.countingServer(http.StatusOK)
 			defer server.Close()
@@ -100,7 +106,7 @@ func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsThroughHTTPClient() {
 // T032's Client must provide, and sends each write method through it exactly as a real caller
 // would use the client built by New, never constructing a ReadOnlyTransport by hand.
 func (s *ReadOnlySuite) TestClientRejectsWriteMethodsThroughItsOwnHTTPClient() {
-	for _, method := range s.writeMethods() {
+	for _, method := range s.rejectedMethods() {
 		s.Run(method, func() {
 			server, hits := s.countingServer(http.StatusOK)
 			defer server.Close()
@@ -126,7 +132,7 @@ func (s *ReadOnlySuite) TestClientRejectsWriteMethodsThroughItsOwnHTTPClient() {
 	}
 }
 
-// TestRoundTripPassesThroughReadMethods asserts GET and HEAD reach the server unchanged: the hit
+// TestRoundTripPassesThroughReadMethods asserts GET reaches the server unchanged: the hit
 // counter increments and the server's response comes back.
 func (s *ReadOnlySuite) TestRoundTripPassesThroughReadMethods() {
 	for _, method := range s.readMethods() {

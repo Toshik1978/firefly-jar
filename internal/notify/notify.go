@@ -5,7 +5,9 @@ package notify
 
 import (
 	"context"
+	"net/mail"
 	"strings"
+	"unicode"
 
 	"github.com/Toshik1978/firefly-jar/internal/digest"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
@@ -70,15 +72,22 @@ func FanOut(ctx context.Context, notifiers []Notifier, d digest.Digest, r *redac
 // keeps its first character and its domain ("m…@example.com"), and anything else keeps its last
 // visibleRecipientSuffix characters ("…6789"). A recipient of visibleRecipientSuffix characters or
 // fewer, email or not, comes back as maskedRecipient, since showing any of it would show most of
-// it.
+// it. So does a malformed recipient: one containing a control or format character (line breaks,
+// escapes, bidi overrides, zero-width characters), or one with an "@" that is not a single bare
+// address mail.ParseAddress accepts, because the domain part is shown verbatim and could otherwise
+// carry a line break or a reordering of the text into a log line.
 func MaskRecipient(recipient string) string {
+	if strings.ContainsFunc(recipient, isControlOrFormat) {
+		return maskedRecipient
+	}
+
 	if at := strings.IndexByte(recipient, '@'); at >= 0 {
-		local := []rune(recipient[:at])
-		if len(local) == 0 {
+		addr, err := mail.ParseAddress(recipient)
+		if err != nil || addr.Address != recipient {
 			return maskedRecipient
 		}
 
-		return string(local[:1]) + "…" + recipient[at:]
+		return string([]rune(recipient[:at])[:1]) + "…" + recipient[at:]
 	}
 
 	runes := []rune(recipient)
@@ -87,4 +96,10 @@ func MaskRecipient(recipient string) string {
 	}
 
 	return "…" + string(runes[len(runes)-visibleRecipientSuffix:])
+}
+
+// isControlOrFormat reports a character that must never be shown from a recipient: a control
+// character (Cc) or an invisible format character (Cf) such as a bidi override.
+func isControlOrFormat(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
 }

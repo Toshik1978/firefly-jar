@@ -1,4 +1,4 @@
-//go:build !live
+//go:build live
 
 package app_test
 
@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// TestApp is the single entry point for package app's test suites. app_live_test.go declares the
-// same TestApp plus LiveSuite for the live build tag; keep the two lists in sync.
+// TestApp is the single entry point for package app's test suites under the live build tag: every
+// suite app_test.go runs, plus LiveSuite. app_test.go carries the !live tag, so exactly one TestApp
+// exists in either build. Keep the two lists in sync (.claude/CLAUDE.md, Testing).
 func TestApp(t *testing.T) {
 	suite.Run(t, new(CheckSuite))
 	suite.Run(t, new(CLISuite))
@@ -25,4 +26,5 @@ func TestApp(t *testing.T) {
 	suite.Run(t, new(AcceptanceUS4Suite))
 	suite.Run(t, new(PrivacySuite))
 	suite.Run(t, new(ReadOnlyGuaranteeSuite))
+	suite.Run(t, new(LiveSuite))
 }

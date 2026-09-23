@@ -203,9 +203,10 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 }
 
 // TestSummary covers Summary's counting rules across one mixed report: a checked account, an
-// excluded account carrying a non-zero result, an unchecked account also carrying a non-zero
-// result, and a second checked account. No single field's expected count could pass by coincidence
-// of matching the number of accounts (data-model.md "Run outcome").
+// excluded account carrying a non-zero result (counted as excluded, its result ignored), an
+// unchecked account also carrying a non-zero result, and a second checked account. No single
+// field's expected count could pass by coincidence of matching the number of accounts
+// (data-model.md "Run outcome").
 func (s *ReportSuite) TestSummary() {
 	uncheckedWithLeftoverResult := report.AccountResult{
 		Mapping: mapping.Mapping{Status: mapping.Auto},
@@ -242,6 +243,7 @@ func (s *ReportSuite) TestSummary() {
 	s.Equal(report.Summary{
 		AccountsChecked:   2,
 		AccountsUnchecked: 1,
+		AccountsExcluded:  1,
 		Matched:           3,
 		Missing:           1,
 		Deduplicated:      1,

@@ -317,19 +317,18 @@ type LoadSuite struct {
 	suite.Suite
 }
 
-// requireLoadSucceeds loads path and requires it to succeed with no warnings, returning the config.
+// requireLoadSucceeds loads path and requires it to succeed, returning the config.
 func (s *LoadSuite) requireLoadSucceeds(path string) *config.Config {
-	cfg, warnings, err := config.Load(path, noEnv)
+	cfg, err := config.Load(path, noEnv)
 
 	s.Require().NoError(err)
-	s.Empty(warnings)
 
 	return cfg
 }
 
 // requireLoadFails loads path and requires it to fail, returning the error.
 func (s *LoadSuite) requireLoadFails(path string) error {
-	cfg, _, err := config.Load(path, noEnv)
+	cfg, err := config.Load(path, noEnv)
 
 	s.Require().Error(err)
 	s.Nil(cfg)
@@ -337,7 +336,7 @@ func (s *LoadSuite) requireLoadFails(path string) error {
 	return fmt.Errorf("load %s: %w", path, err)
 }
 
-func (s *LoadSuite) TestValidYAMLLoadsWithoutWarnings() {
+func (s *LoadSuite) TestValidYAMLLoads() {
 	dir := copyFixtureDir(s.T())
 
 	cfg := s.requireLoadSucceeds(filepath.Join(dir, "valid.yaml"))
@@ -454,6 +453,20 @@ func (s *LoadSuite) TestWindowDaysRange() {
 			}
 		})
 	}
+}
+
+// TestSeveralProblemsAreReportedOnOneLine pins contracts/cli.md's "one-line error on stderr": a config
+// with several invalid fields names every one of them, joined by "; " on a single line, so cron's
+// mail and a grep of the output see the whole failure at once.
+func (s *LoadSuite) TestSeveralProblemsAreReportedOnOneLine() {
+	dir := copyFixtureDir(s.T())
+	path := writeYAML(s.T(), dir, "several.yaml", rangeYAML(0, 99, 7))
+
+	err := s.requireLoadFails(path)
+
+	s.NotContains(err.Error(), "\n")
+	s.Contains(err.Error(), "window_days")
+	s.Contains(err.Error(), "; date_tolerance_days")
 }
 
 func (s *LoadSuite) TestDateToleranceDaysRange() {
@@ -637,6 +650,25 @@ func (s *LoadSuite) TestFireflyURLRejectsCredentialsAndQueryWithoutEchoingThem()
 			s.Require().ErrorContains(err, "firefly.url")
 			s.NotContains(err.Error(), tc.secret)
 		})
+	}
+}
+
+// exampleConfigPath is the repository's documented example config, relative to this package.
+const exampleConfigPath = "../../config.example.yaml"
+
+// TestRepositoryExampleConfigLoads loads the config.example.yaml the README tells the owner to copy,
+// so the example cannot drift from what Load accepts: an unknown key, a renamed field or a value
+// outside its range fails here rather than on the owner's first run.
+func (s *LoadSuite) TestRepositoryExampleConfigLoads() {
+	cfg := s.requireLoadSucceeds(exampleConfigPath)
+
+	s.NotEmpty(cfg.Banks)
+	s.NotEmpty(cfg.Accounts)
+	s.Require().NotNil(cfg.Notify.Telegram)
+	s.Require().NotNil(cfg.Notify.Email)
+
+	for _, rule := range cfg.Accounts {
+		s.Contains(cfg.Banks, rule.Bank, "every accounts: rule in the example names a bank the example defines")
 	}
 }
 
@@ -833,10 +865,9 @@ type ValidateSuite struct {
 func (s *ValidateSuite) loadFull(dir string, o fullYAMLOpts, env func(string) string) *config.Config {
 	path := writeYAML(s.T(), dir, "config.yaml", fullYAML(o))
 
-	cfg, warnings, err := config.Load(path, env)
+	cfg, err := config.Load(path, env)
 
 	s.Require().NoError(err)
-	s.Empty(warnings)
 
 	return cfg
 }
@@ -1061,9 +1092,8 @@ func (s *ValidateSuite) TestEnvVarWinsOverFileForFireflyTokenAndPrivateKey() {
 		"FIREFLY_JAR_ENABLEBANKING_PRIVATE_KEY": strings.TrimSpace(string(pemText)),
 	})
 	path := writeYAML(s.T(), dir, "config.yaml", fullYAML(o))
-	cfg, loadWarnings, loadErr := config.Load(path, env)
+	cfg, loadErr := config.Load(path, env)
 	s.Require().NoError(loadErr)
-	s.Empty(loadWarnings)
 
 	secrets, warnings, valErr := cfg.ValidateFor(config.CmdAccounts, false)
 
@@ -1083,9 +1113,8 @@ func (s *ValidateSuite) TestEnvVarWinsOverFileForTelegramTokenAndSMTPPassword() 
 		"FIREFLY_JAR_SMTP_PASSWORD":  "env-smtp-password-xyz",
 	})
 	path := writeYAML(s.T(), dir, "config.yaml", fullYAML(o))
-	cfg, loadWarnings, loadErr := config.Load(path, env)
+	cfg, loadErr := config.Load(path, env)
 	s.Require().NoError(loadErr)
-	s.Empty(loadWarnings)
 
 	secrets, warnings, valErr := cfg.ValidateFor(config.CmdCheck, false)
 

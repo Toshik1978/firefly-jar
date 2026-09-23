@@ -33,7 +33,9 @@ const (
 	Void
 )
 
-// String renders a Status for logs and the digest.
+// String renders a Status as a lowercase word, so %v and test failure output show "pending" rather
+// than a bare number. Neither the digest nor the logs call it: the digest flags pending
+// transactions its own way, and no record logs a Status.
 func (s Status) String() string {
 	switch s {
 	case Booked:

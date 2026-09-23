@@ -48,7 +48,7 @@ func (rn *renderer) missingLines(accounts []accountView) []string {
 // heading renders `<bank display> · <masked id> · <account name> (<CUR>)`.
 func (rn *renderer) heading(m mapping.Mapping, masked string) string {
 	return fmt.Sprintf("%s · %s · %s (%s)",
-		rn.bankDisplay(m.Bank.BankKey), masked, strip(m.Bank.Name), strip(m.Bank.Currency))
+		rn.bankDisplay(m.Bank.BankKey), masked, Strip(m.Bank.Name), Strip(m.Bank.Currency))
 }
 
 // bankDisplay names a bank the way its heading shows it: the configured display name, else the
@@ -56,7 +56,7 @@ func (rn *renderer) heading(m mapping.Mapping, masked string) string {
 func (rn *renderer) bankDisplay(key string) string {
 	b := rn.banks[key]
 
-	return strip(cmp.Or(b.Display, b.Name, key))
+	return Strip(cmp.Or(b.Display, b.Name, key))
 }
 
 // missingLine renders one missing transaction: date, signed amount at the account's precision,
@@ -64,7 +64,7 @@ func (rn *renderer) bankDisplay(key string) string {
 func (rn *renderer) missingLine(m *reconcile.Missing, places uint8) string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "- %s  %s %s  %s", m.Tx.Date, m.Tx.Amount.Format(places), strip(m.Tx.Amount.Currency),
+	fmt.Fprintf(&b, "- %s  %s %s  %s", m.Tx.Date, m.Tx.Amount.Format(places), Strip(m.Tx.Amount.Currency),
 		rn.description(m.Tx.Description))
 
 	if m.Pending {
@@ -113,7 +113,7 @@ func hintText(h *reconcile.Hint, txDate civil.Date) string {
 		why = pluralDays(abs(h.Date.DaysSince(txDate))) + " apart"
 	}
 
-	return fmt.Sprintf("≈ Firefly #%s on %s (%s)", strip(h.GroupID), h.Date, why)
+	return fmt.Sprintf("≈ Firefly #%s on %s (%s)", Strip(h.GroupID), h.Date, why)
 }
 
 // abs returns the absolute value of n.

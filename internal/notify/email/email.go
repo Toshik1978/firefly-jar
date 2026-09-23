@@ -84,6 +84,17 @@ func New(cfg config.Email, password string, tlsCfg *tls.Config) *Notifier {
 	}
 }
 
+// WithAddr returns a copy of n dialing addr instead of the host and port cfg gave New. Only a test
+// uses this (mirroring bank/enablebanking's Client.WithAuthConfig): config validation restricts
+// notify.email.port to 587 or 465, both privileged, so it is otherwise impossible to point a
+// Notifier at a fake SMTP server bound to an ordinary port.
+func (n *Notifier) WithAddr(addr string) *Notifier {
+	cp := *n
+	cp.addr = addr
+
+	return &cp
+}
+
 // Name reports the channel name, "email".
 func (n *Notifier) Name() string {
 	return channelName

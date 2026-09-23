@@ -325,7 +325,7 @@ func (s *IsolationSuite) TestBankFailureUnchecksOnlyThatBankWhileTheOtherBankIsR
 }
 
 // TestFireflyAccountsUnreachableCostsZeroBankCallsAndReportsOnlyTheProblem covers the fourth
-// design case: a Firefly III accounts-listing failure (a non-retried 401, so the case takes no
+// design case: a Firefly III accounts-listing failure (a non-retried 404, so the case takes no
 // real sleep) is a run-level Problem naming "Firefly III unreachable: …", no bank is ever called
 // even though two are configured, no AccountResult exists at all, and the run exits 2.
 func (s *IsolationSuite) TestFireflyAccountsUnreachableCostsZeroBankCallsAndReportsOnlyTheProblem() {
@@ -338,7 +338,7 @@ func (s *IsolationSuite) TestFireflyAccountsUnreachableCostsZeroBankCallsAndRepo
 			isoBankA: s.session(isoSessionA, s.account(isoUIDA1, "hash-iso-a1", isoIBANA1, "A1")),
 			isoBankB: s.session(isoSessionB, s.account(isoUIDB1, "hash-iso-b1", isoIBANB1, "B1")),
 		},
-		accountsStatus: http.StatusUnauthorized,
+		accountsStatus: http.StatusNotFound,
 	})
 
 	rep, code := h.run(s.T().Context())
@@ -354,6 +354,38 @@ func (s *IsolationSuite) TestFireflyAccountsUnreachableCostsZeroBankCallsAndRepo
 	text := h.notifier.digests[0].Text()
 	s.Contains(text, "Firefly III unreachable: ")
 	s.NotContains(text, "Missing in Firefly III", "a problem-only run has no missing section")
+}
+
+// TestFireflyTokenRejectedIsReportedAsUnauthorized covers a 401 or 403 from the accounts listing:
+// the server answered, so "unreachable" would send the owner looking at the network. The problem
+// says the token was rejected and where it comes from, and the run still costs no bank call.
+func (s *IsolationSuite) TestFireflyTokenRejectedIsReportedAsUnauthorized() {
+	const want = "Firefly III unauthorized: the API token was rejected — check firefly.token_file or " +
+		"FIREFLY_JAR_FIREFLY_TOKEN"
+
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		s.Run(http.StatusText(status), func() {
+			h := s.newHarness(isolationSetup{
+				banks: map[string]config.Bank{isoBankA: {Name: "Bank A", Country: "LT", Display: "Bank A"}},
+				sessions: map[string]state.Session{
+					isoBankA: s.session(isoSessionA, s.account(isoUIDA1, "hash-iso-a1", isoIBANA1, "A1")),
+				},
+				accountsStatus: status,
+			})
+
+			rep, code := h.run(s.T().Context())
+
+			s.Equal(2, code)
+			s.Empty(h.provider.recorded(), "a rejected token must cost zero bank calls")
+			s.Require().Len(rep.Problems, 1)
+			s.Equal(report.Problem{Scope: "firefly", Reason: want}, rep.Problems[0])
+
+			s.Require().Len(h.notifier.digests, 1)
+			text := h.notifier.digests[0].Text()
+			s.Contains(text, "- firefly: "+want)
+			s.NotContains(text, "unreachable")
+		})
+	}
 }
 
 // TestFireflyTransactionsFailureForOneAccountUnchecksOnlyThatAccount covers the fifth design case
@@ -595,7 +627,7 @@ func (s *IsolationSuite) unreachableFireflyHarness() *isolationHarness {
 		sessions: map[string]state.Session{
 			isoBankA: s.session(isoSessionA, s.account(isoUIDA1, "hash-iso-a1", isoIBANA1, "A1")),
 		},
-		accountsStatus: http.StatusUnauthorized,
+		accountsStatus: http.StatusNotFound,
 	})
 }
 

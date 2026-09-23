@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/stretchr/testify/suite"
@@ -97,17 +96,10 @@ func us4AccountsPage(accounts []us4FFAccount) map[string]any {
 // ffPaths instead of a copy of that pattern here.
 type us4Factory struct {
 	provider bank.Provider
-
-	mu     sync.Mutex
-	inputs []app.BuildInput
 }
 
 // build is the app.Factory the harness injects.
 func (f *us4Factory) build(ctx context.Context, in app.BuildInput) (app.Deps, error) {
-	f.mu.Lock()
-	f.inputs = append(f.inputs, in)
-	f.mu.Unlock()
-
 	deps, err := app.BuildDeps(ctx, in)
 	if err != nil {
 		return app.Deps{}, fmt.Errorf("build deps: %w", err)
@@ -116,14 +108,6 @@ func (f *us4Factory) build(ctx context.Context, in app.BuildInput) (app.Deps, er
 	deps.Provider = f.provider
 
 	return deps, nil
-}
-
-// calls returns a copy of every BuildInput received so far.
-func (f *us4Factory) calls() []app.BuildInput {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return append([]app.BuildInput(nil), f.inputs...)
 }
 
 // us4Harness is one AcceptanceUS4Suite case: a temp dir holding the config, state and secret
@@ -179,7 +163,7 @@ func (s *AcceptanceUS4Suite) SetupSuite() {
 }
 
 // TestScenario1FireflyUnreachableSendsProblemOnlyDigestAndEndsCheckFailed covers spec.md US4
-// acceptance scenario 1: Firefly III unreachable (a non-retried 401, so the case costs no real
+// acceptance scenario 1: Firefly III unreachable (a non-retried 404, so the case costs no real
 // sleep, the same technique isolation_test.go's IsolationSuite already uses for this exact case)
 // yields a problem-only digest and the run ends with the "check failed" outcome (exit 2), having
 // never called the bank at all even though one is configured.
@@ -337,12 +321,12 @@ func (s *AcceptanceUS4Suite) TestScenario5InvalidConfigStopsBeforeAnyExternalCal
 }
 
 // newFireflyUnreachableHarness builds scenario 1's fixture: one bank with one account, and a fake
-// Firefly III whose accounts endpoint always answers 401.
+// Firefly III whose accounts endpoint always answers 404 (a 401 or 403 would read "unauthorized").
 func (s *AcceptanceUS4Suite) newFireflyUnreachableHarness() *us4Harness {
 	s.T().Helper()
 
 	events := &eventLog{}
-	ff := &fakeFirefly{events: events, accountsStatus: http.StatusUnauthorized}
+	ff := &fakeFirefly{events: events, accountsStatus: http.StatusNotFound}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/accounts", ff.serveAccounts)

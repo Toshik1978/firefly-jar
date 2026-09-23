@@ -1,5 +1,5 @@
 // Package httpx builds the outbound HTTP stack shared by every adapter: a retrying
-// http.RoundTripper and an *http.Client configured with a bounded timeout and no automatic
+// http.RoundTripper, a per-attempt timeout layer under it, and an *http.Client with no automatic
 // redirect handling (R8, R12).
 package httpx
 
@@ -30,8 +30,10 @@ const retryAfterHeader = "Retry-After"
 
 // RetryTransport wraps Base with bounded retries for GET and HEAD requests: network errors, 5xx
 // and 429 responses are retried with exponential backoff, up to MaxRetries times. A Retry-After
-// response header replaces the computed backoff, capped at MaxWait. Every field is optional; the
-// zero value uses the documented defaults (R12).
+// response header replaces the computed backoff, capped at MaxWait. Every attempt, retried or not,
+// runs under its own AttemptTimeout (see TimeoutTransport), so a hung attempt is cut off and
+// retried while the waits between attempts are bounded only by the request's context. Every field
+// is optional; the zero value uses the documented defaults (R12).
 type RetryTransport struct {
 	// Base is the underlying transport. A nil Base uses http.DefaultTransport.
 	Base http.RoundTripper
@@ -47,6 +49,9 @@ type RetryTransport struct {
 	// MaxWait caps how long a Retry-After header is honored. A longer request fails immediately
 	// instead of waiting it out. Zero uses the default of 60s.
 	MaxWait time.Duration
+	// AttemptTimeout bounds one attempt, its response body read included. Zero uses the default
+	// of 30s.
+	AttemptTimeout time.Duration
 }
 
 // RetryAfterTooLongError reports that a server's Retry-After header exceeded RetryTransport's
@@ -66,7 +71,7 @@ func (e *RetryAfterTooLongError) Error() string {
 // RoundTrip implements http.RoundTripper. It retries req against t.Base as documented on
 // RetryTransport, and otherwise returns the first attempt's outcome unchanged.
 func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	base := t.base()
+	base := &TimeoutTransport{Base: t.base(), Timeout: t.AttemptTimeout}
 	retryable := isRetryableRequest(req)
 	ctx := req.Context()
 

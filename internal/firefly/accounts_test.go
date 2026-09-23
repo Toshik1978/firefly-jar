@@ -202,3 +202,20 @@ func (s *AccountsSuite) TestListAccountsUnauthorizedWrapsErrUnauthorized() {
 	s.Require().ErrorIs(err, ErrUnauthorized)
 	s.Contains(err.Error(), "Firefly token rejected")
 }
+
+// TestListAccountsForbiddenWrapsErrUnauthorized asserts a 403 is the same token problem as a 401
+// (a token Firefly III, or a proxy in front of it, refuses), so the run reports it as unauthorized
+// rather than as an unreachable server.
+func (s *AccountsSuite) TestListAccountsForbiddenWrapsErrUnauthorized() {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusForbidden, []byte(`{"message":"Forbidden."}`))
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "token", http.DefaultTransport)
+
+	_, err := client.ListAccounts(context.Background())
+
+	s.Require().ErrorIs(err, ErrUnauthorized)
+	s.Contains(err.Error(), "status 403")
+}

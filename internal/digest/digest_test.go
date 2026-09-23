@@ -34,7 +34,9 @@ const (
 	ibanRevolut = "LT990000000000000001"
 	ibanLow     = "LT110000000000000002"
 	ibanInText  = "LT770000000000000042"
-	hashWise    = "ab12cd34ef56ab78cd90ef12"
+	// ibanSpaced is ibanInText in its print form, 4-character groups separated by spaces.
+	ibanSpaced = "LT77 0000 0000 0000 0042"
+	hashWise   = "ab12cd34ef56ab78cd90ef12"
 )
 
 // headerWindow ends the header line of every digest rendered over the default fixture window.
@@ -486,6 +488,11 @@ func (s *RenderSuite) TestDescription() {
 		{name: "nothing left after sanitizing reads no description", raw: "\u202e\x00\u2028", want: "(no description)"},
 		{name: "an IBAN in the text is masked", raw: "TRANSFER TO " + ibanInText, want: "TRANSFER TO LT77…0042"},
 		{
+			name: "a spaced IBAN in the text is masked",
+			raw:  "TRANSFER TO " + ibanSpaced + " REF 7",
+			want: "TRANSFER TO LT77…0042 REF 7",
+		},
+		{
 			name: "stripping comes before masking, so a hidden character cannot shield an IBAN",
 			raw:  "TO LT77\u200b0000000000000042",
 			want: "TO LT77…0042",
@@ -664,6 +671,10 @@ func (s *RenderSuite) TestNoUnmaskedIBAN() {
 		s.missing("2026-09-20", "-10.00", "EUR", "TRANSFER TO "+ibanInText))
 	withIBANDetail := uncheckedAccount(bankAccount("swedbank", ibanSavings, "", "EUR", "Savings"), report.BankError,
 		"rejected account "+ibanInText)
+	withSpacedIBAN := s.checkedAccount(bankAccount("revolut", ibanLow, "", "EUR", "Low"), 2,
+		s.missing("2026-09-20", "-10.00", "EUR", "TRANSFER TO "+ibanSpaced))
+	withSpacedDetail := uncheckedAccount(bankAccount("swedbank", ibanSavings, "", "EUR", "Savings"), report.BankError,
+		"rejected account "+ibanSpaced)
 
 	cases := []goldenCase{
 		{name: "full", report: s.fullReport()},
@@ -677,6 +688,14 @@ func (s *RenderSuite) TestNoUnmaskedIBAN() {
 			name:   "iban in unchecked detail",
 			report: report.RunReport{Window: s.window(), Accounts: []report.AccountResult{withIBANDetail}},
 		},
+		{
+			name:   "spaced iban in text",
+			report: report.RunReport{Window: s.window(), Accounts: []report.AccountResult{withSpacedIBAN}},
+		},
+		{
+			name:   "spaced iban in unchecked detail",
+			report: report.RunReport{Window: s.window(), Accounts: []report.AccountResult{withSpacedDetail}},
+		},
 	}
 
 	for i := range cases {
@@ -684,7 +703,7 @@ func (s *RenderSuite) TestNoUnmaskedIBAN() {
 		s.Run(tc.name, func() {
 			d := digest.Render(tc.report, banks())
 
-			for _, iban := range []string{ibanMain, ibanSavings, ibanRevolut, ibanLow, ibanInText} {
+			for _, iban := range []string{ibanMain, ibanSavings, ibanRevolut, ibanLow, ibanInText, ibanSpaced} {
 				s.NotContains(d.Text(), iban)
 				s.NotContains(d.Subject, iban)
 			}
@@ -778,7 +797,7 @@ func (s *RenderSuite) missingOnlyReport() report.RunReport {
 		Accounts: []report.AccountResult{
 			wise,
 			s.checkedAccount(bankAccount("swedbank", ibanMain, "", "EUR", "Main"), 2,
-				s.missing("2026-09-20", "20.00", "EUR", "REFUND"),
+				s.missing("2026-09-20", "20.00", "EUR", "REFUND FROM "+ibanSpaced),
 				s.missing("2026-09-20", "-4.50", "EUR", "COFFEE SHOP"),
 				s.missing("2026-09-20", "-4.50", "EUR", "BAKERY"),
 			),

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/Toshik1978/firefly-jar/internal/digest"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
 	"github.com/Toshik1978/firefly-jar/internal/mapping"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
@@ -25,7 +26,7 @@ const accountsIDsHeader = "HASH"
 
 // Accounts renders the read-only `accounts [--ids]` table (FR-017, contracts/cli.md, spec.md US3).
 // Bank accounts come from deps.State's saved session, exactly what check would use, so the command makes
-// no bank-provider call of its own (constitution §II); only Firefly III's asset accounts are listed. Rows
+// no bank-provider call of its own (constitution §I); only Firefly III's asset accounts are listed. Rows
 // are grouped by configured bank key in sorted order, then by the session's own account order, the same
 // order check.go's reconcileAll visits (ruling on fj-xwu.5.3).
 //
@@ -139,7 +140,8 @@ func fireflyColumn(m mapping.Mapping) string {
 }
 
 // writeAccountsTable writes rows to w as a text/tabwriter table, with the header contracts/cli.md fixes
-// and, when ids is set, a trailing HASH column carrying each account's full, unmasked hash.
+// and, when ids is set, a trailing HASH column carrying each account's full, unmasked hash. Every cell
+// passes through digest.Strip first, the same sanitizing the digest applies.
 func writeAccountsTable(w io.Writer, rows []accountRow, ids bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 
@@ -154,6 +156,12 @@ func writeAccountsTable(w io.Writer, rows []accountRow, ids bool) {
 		cols := []string{r.bank, r.account, r.name, r.cur, r.status, r.firefly}
 		if ids {
 			cols = append(cols, r.hash)
+		}
+
+		// Names, currencies and hashes come from the bank and Firefly III: a tab would shift the
+		// columns, a line break would add a fake row and a bidi override would reorder the text.
+		for i := range cols {
+			cols[i] = digest.Strip(cols[i])
 		}
 
 		fmt.Fprintln(tw, strings.Join(cols, "\t"))

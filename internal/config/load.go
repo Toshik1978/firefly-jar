@@ -37,9 +37,9 @@ func ResolvePath(flagValue string, env func(string) string) string {
 // Load reads the config at path, decodes it strictly (an unknown key fails with its line and
 // column), applies defaults, resolves relative paths against the config file's directory and runs
 // the structural validation. It reads no secret: ValidateFor does that per command, looking env-var
-// secrets up through env (nil means the process environment). The returned warnings are non-fatal
-// findings for the caller to log.
-func Load(path string, env func(string) string) (*Config, []string, error) {
+// secrets up through env (nil means the process environment). Load has no non-fatal findings of its
+// own: the secret-file permission warnings come from ValidateFor, which is what reads those files.
+func Load(path string, env func(string) string) (*Config, error) {
 	if env == nil {
 		env = os.Getenv
 	}
@@ -48,22 +48,22 @@ func Load(path string, env func(string) string) (*Config, []string, error) {
 
 	data, err := os.ReadFile(clean)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read config: %w", err)
+		return nil, fmt.Errorf("read config: %w", err)
 	}
 
 	cfg := newDefaultConfig()
 	if err = yaml.UnmarshalWithOptions(data, cfg, yaml.Strict()); err != nil {
-		return nil, nil, decodeError(clean, err)
+		return nil, decodeError(clean, err)
 	}
 
 	cfg.env = env
 	cfg.resolvePaths(filepath.Dir(clean))
 
 	if err = cfg.validate(); err != nil {
-		return nil, nil, fmt.Errorf("config %s: %w", clean, err)
+		return nil, fmt.Errorf("config %s: %w", clean, err)
 	}
 
-	return cfg, nil, nil
+	return cfg, nil
 }
 
 // resolvePaths makes every relative file path absolute against dir (the config file's directory),

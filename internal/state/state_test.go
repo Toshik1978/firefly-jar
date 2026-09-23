@@ -149,6 +149,67 @@ func (s *StateSuite) TestLoadValidJSONRoundTrips() {
 	s.requireStateEqual(st, reloaded)
 }
 
+func (s *StateSuite) TestLoadStatFailureOtherThanNotExistIsError() {
+	s.skipIfRoot()
+
+	dir := s.T().TempDir()
+	sub := filepath.Join(dir, "sub")
+	s.Require().NoError(os.Mkdir(sub, 0o700))
+	path := filepath.Join(sub, "state.json")
+	s.Require().NoError(os.WriteFile(path, []byte("{}"), 0o600))
+
+	// A directory without search (execute) permission makes os.Stat on a file inside it fail with
+	// permission denied instead of ErrNotExist, exercising Load's generic stat-error branch.
+	s.Require().NoError(os.Chmod(sub, 0o600))
+	s.T().Cleanup(func() { _ = os.Chmod(sub, 0o700) })
+
+	st, warnings, err := state.Load(path)
+
+	s.Require().Error(err)
+	s.Nil(st)
+	s.Empty(warnings)
+	s.ErrorContains(err, "stat state file")
+}
+
+func (s *StateSuite) TestLoadOfUnreadableFileIsError() {
+	s.skipIfRoot()
+
+	path := copyFixtureFile(s.T(), "valid.json")
+	s.Require().NoError(os.Chmod(path, 0o000))
+	s.T().Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	st, warnings, err := state.Load(path)
+
+	s.Require().Error(err)
+	s.Nil(st)
+	s.Empty(warnings)
+	s.ErrorContains(err, "read state file")
+}
+
+func (s *StateSuite) TestLoadMalformedJSONIsError() {
+	path := copyFixtureFile(s.T(), "malformed.json")
+
+	st, warnings, err := state.Load(path)
+
+	s.Require().Error(err)
+	s.Nil(st)
+	s.Empty(warnings)
+	s.ErrorContains(err, "decode state file")
+}
+
+func (s *StateSuite) TestLoadWithoutSessionsKeyReturnsEmptyMap() {
+	path := copyFixtureFile(s.T(), "no_sessions.json")
+
+	st, warnings, err := state.Load(path)
+
+	s.Require().NoError(err)
+	s.Empty(warnings)
+	s.Require().NotNil(st)
+	s.Equal(1, st.Version)
+	s.Require().NotNil(st.Sessions)
+	s.Empty(st.Sessions)
+}
+
 func (s *StateSuite) TestLoadUnknownVersionIsError() {
 	path := copyFixtureFile(s.T(), "bad_version.json")
 
@@ -203,6 +264,38 @@ func (s *StateSuite) TestSaveWritesMode0600() {
 	info, statErr := os.Stat(path)
 	s.Require().NoError(statErr)
 	s.Equal(os.FileMode(0o600), info.Mode().Perm())
+}
+
+func (s *StateSuite) TestSaveRenameFailureIsError() {
+	dir := s.T().TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	// A directory sitting at the destination path makes os.Rename fail after the temp file has
+	// already been written, exercising Save's rename-error branch distinctly from the
+	// create-temp-file failure covered by TestSaveToReadOnlyDirLeavesOldFileIntactAndNoTempFileBehind.
+	s.Require().NoError(os.Mkdir(path, 0o700))
+
+	st := &state.State{Version: 1, Sessions: map[string]state.Session{}}
+
+	err := state.Save(path, st)
+
+	s.Require().ErrorContains(err, "rename state file")
+
+	entries, readErr := os.ReadDir(dir)
+	s.Require().NoError(readErr)
+	for _, entry := range entries {
+		s.NotContains(entry.Name(), ".tmp", "leftover temp file: %s", entry.Name())
+	}
+}
+
+func (s *StateSuite) TestPutOnZeroValueStateInitializesSessions() {
+	var st state.State
+
+	st.Put("swedbank", state.Session{Provider: "enablebanking", SessionID: "00000000-0000-0000-0000-000000000001"})
+
+	s.Require().NotNil(st.Sessions)
+	s.Require().Len(st.Sessions, 1)
+	s.Equal("00000000-0000-0000-0000-000000000001", st.Sessions["swedbank"].SessionID)
 }
 
 func (s *StateSuite) TestPutReplacesOnlyThatBank() {

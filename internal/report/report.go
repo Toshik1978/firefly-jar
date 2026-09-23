@@ -44,10 +44,13 @@ type Problem struct {
 type Summary struct {
 	AccountsChecked   int
 	AccountsUnchecked int
-	Matched           int
-	Missing           int
-	Deduplicated      int
-	Void              int
+	// AccountsExcluded counts accounts an accounts: rule with exclude: true set aside: never
+	// fetched, never in the digest, but counted here so the summary accounts for every account.
+	AccountsExcluded int
+	Matched          int
+	Missing          int
+	Deduplicated     int
+	Void             int
 }
 
 // ExitCode reports the process exit status for this run (FR-029, contracts/cli.md): 2 if any
@@ -74,8 +77,8 @@ func (r RunReport) DigestNeeded() bool {
 }
 
 // Summary counts this run's accounts and transactions (data-model.md "Run outcome"): an excluded
-// account is skipped entirely, an unchecked account adds only to AccountsUnchecked, and every other
-// account adds to AccountsChecked and to its reconcile counts.
+// account adds only to AccountsExcluded, an unchecked account adds only to AccountsUnchecked, and
+// every other account adds to AccountsChecked and to its reconcile counts.
 func (r RunReport) Summary() Summary {
 	var s Summary
 
@@ -84,7 +87,7 @@ func (r RunReport) Summary() Summary {
 
 		switch {
 		case a.Mapping.Status == mapping.Excluded:
-			continue
+			s.AccountsExcluded++
 		case a.Unchecked != nil:
 			s.AccountsUnchecked++
 		default:

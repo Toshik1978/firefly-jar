@@ -96,9 +96,10 @@ terminal (FR-039), cron mails you only for real problems.
 
 | Drill | Expected |
 |---|---|
-| Point `firefly.url` at a closed port | Problem-only digest, exit 2 |
+| Point `firefly.url` at a closed port | Problem-only digest ("Firefly III unreachable: …"), exit 2 |
+| Set a wrong Firefly III token | Problem-only digest ("Firefly III unauthorized: the API token was rejected — …"), exit 2 |
 | Set a wrong Telegram token, keep email valid | Email delivered, WARN on stderr, exit follows the findings |
 | Break all notifiers | Digest text on stderr, exit 2 |
-| Remove a bank's session from `state.json` | "not authorized: run firefly-jar auth <bank>", exit 2 |
+| Remove a bank's session from `state.json` | "not authorized — run: firefly-jar auth <bank>", exit 2 |
 | Edit `valid_until` to 5 days from now | Consent warning in the digest, exit unchanged |
 | Add an unknown key to config | Error naming the key before any network call, exit 2 |

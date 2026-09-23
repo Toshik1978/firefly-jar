@@ -30,13 +30,13 @@ import (
 // choosing amount/foreign_amount by currency match, the source/destination sign rule, the
 // YYYY-MM-DD date-prefix rule, the 200-page safety cap, and the 404/non-JSON error mappings. It is
 // the RED half of T036: every case here fails today for lack of a production
-// ListAccountTransactions, ErrNotFound, ErrDataIncomplete, and the unexported withLogger DEBUG-log
-// injection point this suite relies on.
+// ListAccountTransactions, ErrNotFound, ErrDataIncomplete, and the WithLogger DEBUG-log injection
+// point this suite relies on.
 //
-// Logger-injection decision (T035, binding on T036): Client gains an unexported `logger
-// *slog.Logger` field, defaulting in New to slog.New(slog.DiscardHandler), plus an unexported
-// `(c *Client) withLogger(logger *slog.Logger) *Client` that returns a shallow copy of c logging to
-// logger instead. New's exported signature does not change. The single DEBUG record a skipped,
+// Logger-injection decision (T035, revised by fj-xwu.14): Client has an unexported `logger
+// *slog.Logger` field, defaulting in New to slog.New(slog.DiscardHandler), and New takes an
+// exported WithLogger option that sets it, so app.BuildDeps can pass the run's logger and the
+// record reaches the log file in production. The single DEBUG record a skipped,
 // incomparable split produces carries exactly four snake_case attrs -- group_id (string),
 // account_id (the raw Firefly account id: an internal database number, not a bank identifier, so
 // the IBAN masking rule does not apply and masking it would render every id as asterisks), date
@@ -223,7 +223,7 @@ func (s *TransactionsSuite) TestListAccountTransactionsMergesFiltersSignsAndSkip
 	var logBuf bytes.Buffer
 
 	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	client := New(server.URL, "token", http.DefaultTransport).withLogger(logger)
+	client := New(server.URL, "token", http.DefaultTransport, WithLogger(logger))
 
 	got, err := client.ListAccountTransactions(
 		context.Background(), "1", "EUR", s.mustDate("2026-09-01"), s.mustDate("2026-09-23"),

@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/stretchr/testify/suite"
@@ -165,29 +164,17 @@ func (s *AcceptanceUS1Suite) newHarness(bankTxs []bank.Transaction, entries []ff
 // configYAML renders the case's config: one bank, one Telegram notifier, and the given Firefly III
 // URL.
 func (*AcceptanceUS1Suite) configYAML(dir, fireflyURL string) string {
-	var b strings.Builder
-
-	b.WriteString("timezone: Europe/Vilnius\n")
-	b.WriteString("window_days: 30\n")
-	b.WriteString("date_tolerance_days: 3\n")
-	b.WriteString("consent_warn_days: 7\n")
-	b.WriteString("state_file: " + filepath.Join(dir, "state.json") + "\n")
-	b.WriteString("log_file: " + filepath.Join(dir, "firefly-jar.log") + "\n")
-	b.WriteString("log_level: info\n")
-	b.WriteString("firefly:\n")
-	b.WriteString("  url: " + fireflyURL + "\n")
-	b.WriteString("enablebanking:\n")
-	b.WriteString("  app_id: 00000000-0000-0000-0000-000000000000\n")
-	b.WriteString("  private_key_file: " + filepath.Join(dir, "enablebanking.pem") + "\n")
-	b.WriteString("  redirect_url: https://example.com/eb-callback\n")
-	b.WriteString("banks:\n")
-	b.WriteString("  " + checkBankKey + ": { name: Test Bank, country: LT, display: Testbank }\n")
-	b.WriteString("notify:\n")
-	b.WriteString("  telegram:\n")
-	b.WriteString("    bot_token_file: " + filepath.Join(dir, "telegram.token") + "\n")
-	b.WriteString("    chat_ids: [100000001]\n")
-
-	return b.String()
+	return buildConfigYAML(configOpts{
+		timezone:          "Europe/Vilnius",
+		stateFile:         filepath.Join(dir, "state.json"),
+		logFile:           filepath.Join(dir, "firefly-jar.log"),
+		fireflyURL:        fireflyURL,
+		privateKeyFile:    filepath.Join(dir, "enablebanking.pem"),
+		banks:             []configBank{{key: checkBankKey, name: "Test Bank", country: "LT", display: "Testbank"}},
+		telegram:          true,
+		telegramTokenFile: filepath.Join(dir, "telegram.token"),
+		telegramChatIDs:   []int64{100000001},
+	})
 }
 
 // writeState saves a state file with one session for the configured bank whose one account maps

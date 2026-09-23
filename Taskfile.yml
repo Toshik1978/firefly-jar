@@ -52,6 +52,11 @@ tasks:
     cmds:
       - go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
+  cover:
+    desc: Run tests with coverage into cover.out.
+    cmds:
+      - go test ./... -coverpkg=./... -coverprofile=cover.out
+
   clean:
     desc: Remove build artifacts.
     cmds:

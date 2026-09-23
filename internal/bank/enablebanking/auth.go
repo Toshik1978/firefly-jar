@@ -57,7 +57,8 @@ type authRequest struct {
 }
 
 // authRequestAccess is the consent scope StartAuth always requests: transactions only, never
-// balances (constitution §II asks for the minimum consent that still serves the reminder).
+// balances (constitution §I limits bank access to account information, and the reminder needs no
+// balances).
 type authRequestAccess struct {
 	ValidUntil   string `json:"valid_until"`
 	Transactions bool   `json:"transactions"`
@@ -181,7 +182,9 @@ func ParseRedirect(pasted, expectedState string) (string, error) {
 
 	redirectURL, err := url.Parse(trimmed)
 	if err != nil {
-		return "", fmt.Errorf("parse redirect: %w", err)
+		// url.Parse's error quotes the whole input, one-time code included, and auth prints this
+		// error, so the cause is deliberately dropped for fixed text.
+		return "", errors.New("parse redirect: not a valid URL")
 	}
 
 	query := redirectURL.Query()

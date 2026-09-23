@@ -13,10 +13,21 @@
 // limitations under the License.
 //
 // This file was copied from cloud.google.com/go/civil (v0.123.0, package civil, file civil.go) and
-// modified: the Time and DateTime types, their database/sql Scan/Value integration, and
-// AddMonths/AddYears/Weekday were removed because nothing in firefly-jar needs them; ParseDate and
-// UnmarshalText now wrap the underlying error to satisfy this repository's wrapcheck lint rule; and
-// doc comments and layout were adjusted to this repository's gofumpt/gci/golines configuration.
+// modified:
+//   - removed, because nothing in firefly-jar needs them: the Time and DateTime types, Date's
+//     database/sql Value and Scan methods (and the database/sql/driver import), and Date's
+//     AddMonths, AddYears and Weekday methods;
+//   - the package doc comment was rewritten for the Date-only package;
+//   - the "2006-01-02" layout and the 86400 seconds-per-day divisor became the named constants
+//     dateLayout and secondsPerDay;
+//   - ParseDate wraps the time.Parse error with the input, and UnmarshalText wraps ParseDate's
+//     error, to satisfy this repository's wrapcheck lint rule;
+//   - UnmarshalText leaves *d unchanged when parsing fails (upstream sets it to the zero Date);
+//   - IsZero dropped the redundant parentheses around its three comparisons;
+//   - Compare was rewritten as a switch returning 1 instead of an if/else chain returning +1,
+//     DaysSince lost its named result, and the d2 parameters of Before, After and Compare were
+//     renamed other;
+//   - doc comments and layout were adjusted to this repository's gofumpt/gci/golines configuration.
 
 // Package civil implements a time-zone-independent civil date: a year, month and day following the
 // proleptic Gregorian calendar, with no time-of-day or location attached. Compute "today" and any

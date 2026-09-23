@@ -142,7 +142,7 @@ func (s *TransactionsSuite) TestClientSatisfiesBankProviderInterface() {
 // TestTransactionsRequestHasDateFromOnlyBearerAuthAndNoPsuHeaders asserts the request shape bullet
 // of the T029 design: GET /accounts/{uid}/transactions with date_from = from-1day, no date_to and
 // no transaction_status, an Authorization: Bearer <jwt> header, and never a header starting with
-// Psu- (account-information consent only, constitution §II).
+// Psu- (account-information consent only, constitution §I).
 func (s *TransactionsSuite) TestTransactionsRequestHasDateFromOnlyBearerAuthAndNoPsuHeaders() {
 	acc := testAccount("uid-100")
 	from := civil.Date{Year: 2026, Month: time.September, Day: 5}
@@ -187,7 +187,7 @@ func (s *TransactionsSuite) TestTransactionsRequestHasDateFromOnlyBearerAuthAndN
 	for name := range gotHeader {
 		s.Falsef(
 			strings.HasPrefix(name, "Psu-"),
-			"unexpected consent-only-violating header %s (constitution §II)",
+			"unexpected consent-only-violating header %s (constitution §I)",
 			name,
 		)
 	}

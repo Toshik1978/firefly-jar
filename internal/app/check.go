@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"maps"
@@ -103,10 +104,7 @@ func (r *checkRun) reconcileAll(ctx context.Context) report.RunReport {
 	ffAccounts, err := r.deps.Firefly.ListAccounts(ctx)
 	if err != nil {
 		r.deps.Log.InfoContext(ctx, "firefly accounts unavailable", "error", err)
-		rep.Problems = append(rep.Problems, report.Problem{
-			Scope:  "firefly",
-			Reason: "Firefly III unreachable: " + r.deps.Redactor.Scrub(err.Error()),
-		})
+		rep.Problems = append(rep.Problems, report.Problem{Scope: "firefly", Reason: r.fireflyProblem(err)})
 
 		return rep
 	}
@@ -116,6 +114,19 @@ func (r *checkRun) reconcileAll(ctx context.Context) report.RunReport {
 	}
 
 	return rep
+}
+
+// fireflyProblem words a failed Firefly III accounts listing for the digest. A rejected token is
+// named as such, with where the token comes from, since the server did answer and "unreachable"
+// would send the owner looking at the network; anything else is "unreachable" with the scrubbed
+// error.
+func (r *checkRun) fireflyProblem(err error) string {
+	if errors.Is(err, firefly.ErrUnauthorized) {
+		return "Firefly III unauthorized: the API token was rejected — check firefly.token_file or " +
+			"FIREFLY_JAR_FIREFLY_TOKEN"
+	}
+
+	return "Firefly III unreachable: " + r.deps.Redactor.Scrub(err.Error())
 }
 
 // reconcileBank adds one configured bank's accounts to rep. An expired consent unchecks every
@@ -207,7 +218,7 @@ func (r *checkRun) fallbackToStderr(ctx context.Context, delivery report.Deliver
 	}
 
 	if _, err := io.WriteString(r.deps.Stderr, d.Text()); err != nil {
-		r.deps.Log.ErrorContext(ctx, "print digest failed", "error", err)
+		r.deps.Log.ErrorContext(ctx, "stderr fallback failed", "error", err)
 	}
 }
 
@@ -221,6 +232,7 @@ func (r *checkRun) logSummary(ctx context.Context, rep *report.RunReport) {
 		slog.String("window", rep.Window.From.String()+".."+rep.Window.To.String()),
 		slog.Int("accounts_checked", sum.AccountsChecked),
 		slog.Int("accounts_unchecked", sum.AccountsUnchecked),
+		slog.Int("accounts_excluded", sum.AccountsExcluded),
 		slog.Int("matched", sum.Matched),
 		slog.Int("missing", sum.Missing),
 		slog.Int("deduplicated", sum.Deduplicated),

@@ -127,7 +127,8 @@ func (s *ReconcileSuite) TestHints() {
 }
 
 // TestHintTieBreaks covers the FR-025a candidate order: nearest, then earlier date, then lower
-// group id, with Taken preferred over NearMiss.
+// group id. Taken (within tolerance) is always nearer than NearMiss (beyond it), so the two kinds
+// never tie.
 func (s *ReconcileSuite) TestHintTieBreaks() {
 	s.runCases(s.hintTieCases())
 }

@@ -132,16 +132,39 @@ func (b *cappedProbeBody) wasClosed() bool {
 	return b.closed
 }
 
+// stalledBody is a response body whose every Read blocks until done is closed and then fails with
+// cause's error: given a request context's Done and Err, it fails the way a real transport's body
+// read does once its request context ends.
+type stalledBody struct {
+	done  <-chan struct{}
+	cause func() error
+}
+
+func (b *stalledBody) Read(_ []byte) (int, error) {
+	<-b.done
+
+	return 0, fmt.Errorf("stalled body: %w", b.cause())
+}
+
+func (b *stalledBody) Close() error { return nil }
+
 // scriptedStep is one queued outcome of a fakeTransport: either a response or a network error,
 // never both. A response's body is normally built from body, but rawBody lets a test supply its
 // own io.ReadCloser instead, for cases (such as a body far larger than a cap) that fakeBody's
 // fixed in-memory buffer cannot represent.
+//
+// hang makes the attempt block until its request's context is done and then fail with the
+// context's error, the in-process shape of a server that accepted the connection and never
+// answered. stallBody makes the response's body block every Read the same way, the shape of a
+// server that sent its headers and then went silent.
 type scriptedStep struct {
-	err     error
-	header  http.Header
-	body    string
-	rawBody io.ReadCloser
-	status  int
+	hang      bool
+	stallBody bool
+	err       error
+	header    http.Header
+	body      string
+	rawBody   io.ReadCloser
+	status    int
 }
 
 // fakeAttempt records one call the code under test made to fakeTransport.RoundTrip: which HTTP
@@ -175,14 +198,24 @@ func (f *fakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	step := f.steps[idx]
 	f.mu.Unlock()
 
+	if step.hang {
+		<-req.Context().Done()
+
+		return nil, fmt.Errorf("fakeTransport: hung attempt: %w", req.Context().Err())
+	}
+
 	if step.err != nil {
 		return nil, step.err
 	}
 
 	var body io.ReadCloser
-	if step.rawBody != nil {
+
+	switch {
+	case step.stallBody:
+		body = &stalledBody{done: req.Context().Done(), cause: req.Context().Err}
+	case step.rawBody != nil:
 		body = step.rawBody
-	} else {
+	default:
 		fb := newFakeBody(step.body)
 
 		f.mu.Lock()

@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,8 +14,8 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
 
-// Fields every buildConfigYAML config shares, never varied by a case (contracts/config.md):
-// window_days, date_tolerance_days and consent_warn_days always render 30/3/7, log_level always
+// Fields every buildConfigYAML config shares (contracts/config.md):
+// window_days, date_tolerance_days and consent_warn_days always render 30/3/7, log_level defaults to
 // info, the Enable Banking app_id is always the anonymized all-zero UUID, and the redirect_url is
 // always the anonymized example.com callback.
 const (
@@ -34,9 +35,10 @@ type configBank struct {
 }
 
 // configOpts is every variable part of the config-YAML shared across this package's suites
-// (accounts_test.go, acceptance_us2_test.go, acceptance_us3_test.go, delivery_test.go,
-// failfast_test.go): the fields every suite's own configYAML/ffConfigYAML method used to render by
-// hand before this helper replaced them.
+// (accounts_test.go, acceptance_us1_test.go, acceptance_us2_test.go, acceptance_us3_test.go,
+// auth_test.go, cli_test.go, delivery_test.go, failfast_test.go, privacy_test.go): the fields every
+// suite's own configYAML/ffConfigYAML method used to render by hand before this helper replaced
+// them.
 type configOpts struct {
 	// extraTop are raw lines rendered before timezone:, one config key per line and without a
 	// trailing newline (FailFastSuite's unknown-key case).
@@ -46,6 +48,9 @@ type configOpts struct {
 	stateFile  string
 	logFile    string
 	fireflyURL string
+
+	// logLevel overrides configLogLevel when set (PrivacySuite runs at debug).
+	logLevel string
 
 	// fireflyTokenFile adds a firefly.token_file: line when set; left empty, no such line is
 	// rendered and the token is expected to come from the environment instead, as most suites
@@ -68,6 +73,8 @@ type configOpts struct {
 	telegramChatIDs   []int64
 	email             bool
 	emailPasswordFile string
+	// emailHost overrides the default smtp.example.com when set (PrivacySuite's fake SMTP server).
+	emailHost string
 }
 
 // buildConfigYAML renders one config.yaml for a package app_test suite from o. It is the one
@@ -86,7 +93,7 @@ func buildConfigYAML(o configOpts) string {
 	fmt.Fprintf(&b, "consent_warn_days: %d\n", configConsentWarnDays)
 	fmt.Fprintf(&b, "state_file: %s\n", o.stateFile)
 	fmt.Fprintf(&b, "log_file: %s\n", o.logFile)
-	fmt.Fprintf(&b, "log_level: %s\n", configLogLevel)
+	fmt.Fprintf(&b, "log_level: %s\n", cmp.Or(o.logLevel, configLogLevel))
 
 	b.WriteString("firefly:\n")
 	fmt.Fprintf(&b, "  url: %s\n", o.fireflyURL)
@@ -148,7 +155,7 @@ func writeConfigNotify(b *strings.Builder, o configOpts) {
 
 	if o.email {
 		b.WriteString("  email:\n")
-		b.WriteString("    host: smtp.example.com\n")
+		fmt.Fprintf(b, "    host: %s\n", cmp.Or(o.emailHost, "smtp.example.com"))
 		b.WriteString("    port: 587\n")
 		b.WriteString("    username: firefly-jar@example.com\n")
 		fmt.Fprintf(b, "    password_file: %s\n", o.emailPasswordFile)

@@ -37,7 +37,7 @@ func (rn *renderer) uncheckedLine(v accountView) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "- %s %s (%s): unchecked — %s",
-		strip(a.Mapping.Bank.BankKey), v.maskedID, strip(a.Mapping.Bank.Name), a.Unchecked.Code.Text())
+		Strip(a.Mapping.Bank.BankKey), v.maskedID, Strip(a.Mapping.Bank.Name), a.Unchecked.Code.Text())
 
 	if detail := rn.text(a.Unchecked.Detail); detail != "" {
 		b.WriteString(": " + detail)
@@ -46,7 +46,7 @@ func (rn *renderer) uncheckedLine(v accountView) string {
 	if a.Unchecked.Code == report.Ambiguous && len(a.Mapping.Candidates) > 0 {
 		ids := make([]string, 0, len(a.Mapping.Candidates))
 		for i := range a.Mapping.Candidates {
-			ids = append(ids, "#"+strip(a.Mapping.Candidates[i].ID))
+			ids = append(ids, "#"+Strip(a.Mapping.Candidates[i].ID))
 		}
 
 		b.WriteString(" (Firefly " + strings.Join(ids, ", ") + ")")
@@ -60,7 +60,7 @@ func (rn *renderer) uncheckedLine(v accountView) string {
 func sortedProblems(problems []report.Problem) []report.Problem {
 	sorted := make([]report.Problem, 0, len(problems))
 	for _, p := range problems {
-		sorted = append(sorted, report.Problem{Scope: strip(p.Scope), Reason: strip(p.Reason)})
+		sorted = append(sorted, report.Problem{Scope: Strip(p.Scope), Reason: Strip(p.Reason)})
 	}
 
 	slices.SortStableFunc(sorted, func(x, y report.Problem) int {
@@ -82,7 +82,7 @@ func consentLines(warnings []report.ConsentWarning) []string {
 	lines := make([]string, 0, len(sorted))
 	for i := range sorted {
 		w := &sorted[i]
-		key := strip(w.BankKey)
+		key := Strip(w.BankKey)
 		lines = append(lines, fmt.Sprintf("- %s: consent expires %s (%s) — run: firefly-jar auth %s",
 			key, w.ValidUntil.Format(time.DateOnly), pluralDays(w.DaysLeft), key))
 	}

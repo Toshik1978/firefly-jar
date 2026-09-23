@@ -4,7 +4,7 @@ Binary: `firefly-jar`. All commands take `--config <path>` (default `/etc/firefl
 env override `FIREFLY_JAR_CONFIG`). Unknown flags or commands → usage on stderr, exit 2.
 
 Config and state are validated before any network call (FR-030); on failure: one-line error on stderr naming
-the field/file, exit 2.
+the field/file (several problems are listed on that same line, separated by `; `), exit 2.
 
 ## `firefly-jar check [--stdout]`
 
@@ -15,13 +15,14 @@ One reconciliation run (FR-003).
 | All accounts checked, nothing missing, no warnings | none | — | — | 0 |
 | All accounts checked, nothing missing, consent warning(s) | digest (warnings only) | — | — | 0 |
 | All accounts checked, ≥1 missing, digest delivered to ≥1 recipient | digest | — | per-recipient failures (WARN) | 1 |
-| Any account unchecked / consent expired / Firefly III unreachable | digest (with problems) | — | ERROR summary line | 2 |
+| Any account unchecked / consent expired / Firefly III unreachable or token rejected | digest (with problems) | — | ERROR summary line | 2 |
 | Delivery failed for every recipient | — | — | ERROR + full digest text | 2 |
 | Config/state invalid | — | — | ERROR | 2 |
 
 - `--stdout`: the digest (if any) is printed to stdout instead of being sent; exit codes unchanged.
   Delivery-failure rows do not apply.
-- A non-`--stdout` run that exits 0 or 1 writes nothing to stdout/stderr (FR-039).
+- A non-`--stdout` run that exits 0 or 1 writes nothing to stdout, and nothing to stderr except WARN
+  records such as a per-recipient delivery failure (FR-039).
 - Precedence: 2 > 1 > 0 (FR-029).
 
 ## `firefly-jar auth <bank>`
@@ -62,8 +63,12 @@ old       LT55…7777      Closed          EUR  excluded     —
 ```
 
 `--ids` adds a column with the full `identification_hash` for copy-paste into `accounts:` overrides
-(see config.md). Exit 0 if every non-excluded account is mapped; 2 otherwise (so it can be used as a
-setup check).
+(see config.md).
+
+Every cell is printed after the same stripping the digest applies to bank- and Firefly-supplied text
+(control and format characters, including tabs, line breaks and bidi overrides, are removed), so an account
+name can neither shift the columns nor add a row. Exit 0 if every non-excluded account is mapped; 2
+otherwise (so it can be used as a setup check).
 
 ## Global
 

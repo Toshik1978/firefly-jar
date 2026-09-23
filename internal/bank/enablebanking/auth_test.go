@@ -101,12 +101,12 @@ func (s *AuthSuite) fixture(name string) []byte {
 }
 
 // requireNoPsuHeaders asserts that header carries no name starting with Psu- (account-information
-// consent only, constitution §II).
+// consent only, constitution §I).
 func (s *AuthSuite) requireNoPsuHeaders(header http.Header) {
 	for name := range header {
 		s.Falsef(
 			strings.HasPrefix(name, "Psu-"),
-			"unexpected consent-only-violating header %s (constitution §II)",
+			"unexpected consent-only-violating header %s (constitution §I)",
 			name,
 		)
 	}
@@ -268,6 +268,20 @@ func (s *AuthSuite) TestParseRedirect() {
 
 		_, err := enablebanking.ParseRedirect(pasted, expectedState)
 		s.Require().Error(err)
+	})
+
+	// The pasted URL carries the one-time authorization code, and auth prints this error to
+	// stderr, so an unparsable paste must fail with fixed text that echoes nothing of the input.
+	s.Run("an unparsable paste is not echoed", func() {
+		const code = "0000onetimecode0000"
+
+		pasted := "https://example.com:x/cb?code=" + code + "&state=" + expectedState
+
+		_, err := enablebanking.ParseRedirect(pasted, expectedState)
+		s.Require().Error(err)
+		s.Equal("parse redirect: not a valid URL", err.Error())
+		s.NotContains(err.Error(), code)
+		s.NotContains(err.Error(), "example.com")
 	})
 }
 

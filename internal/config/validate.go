@@ -325,8 +325,33 @@ func (col *collector) secret(env func(string) string, src secretSource) string {
 	return value
 }
 
+// err returns every collected problem as one error, or nil when there is none. The problems are
+// joined by "; " rather than errors.Join's newlines, because the CLI prints the error as the one
+// line contracts/cli.md promises; errors.Is and errors.As still see each problem.
 func (col *collector) err() error {
-	return errors.Join(col.errs...)
+	if len(col.errs) == 0 {
+		return nil
+	}
+
+	return problemsError(col.errs)
+}
+
+// problemsError is several validation problems reported as one single-line error.
+type problemsError []error
+
+// Error joins the problems' messages with "; ".
+func (e problemsError) Error() string {
+	msgs := make([]string, 0, len(e))
+	for _, err := range e {
+		msgs = append(msgs, err.Error())
+	}
+
+	return strings.Join(msgs, "; ")
+}
+
+// Unwrap exposes every problem to errors.Is and errors.As.
+func (e problemsError) Unwrap() []error {
+	return e
 }
 
 func checkRequired(key, value string) error {
@@ -474,8 +499,16 @@ func checkDirWritable(key, file string) error {
 		return fmt.Errorf("%s: directory is not writable: %w", key, err)
 	}
 
-	if err = errors.Join(probe.Close(), os.Remove(probe.Name())); err != nil {
+	// Close and remove are reported one at a time rather than through errors.Join, whose message
+	// spans two lines when both fail, so the problem stays on the single config-error line.
+	closeErr := probe.Close()
+
+	if err = os.Remove(probe.Name()); err != nil {
 		return fmt.Errorf("%s: remove write probe: %w", key, err)
+	}
+
+	if closeErr != nil {
+		return fmt.Errorf("%s: close write probe: %w", key, closeErr)
 	}
 
 	return nil

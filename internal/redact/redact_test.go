@@ -130,6 +130,66 @@ func (s *RedactorSuite) TestScrubMasksLowercaseIBANShapedSubstrings() {
 	s.Equal("acct lt12…1000 end", got)
 }
 
+// TestScrubMasksSpacedIBANs covers the print form of an IBAN, 4-character groups separated by
+// single spaces (FR-036, SC-009): it is masked like the compact form, from the compact characters,
+// so a short last group never leaves a space inside the mask.
+func (s *RedactorSuite) TestScrubMasksSpacedIBANs() {
+	r := redact.New()
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "all-digit groups in a sentence",
+			in:   "transfer to LT12 3456 7890 1234 5678 done",
+			want: "transfer to LT12…5678 done",
+		},
+		{name: "lower case", in: "to lt12 3456 7890 1234 5678", want: "to lt12…5678"},
+		{name: "short last group", in: "NO93 8601 1117 947", want: "NO93…7947"},
+		{name: "letters in the bank code group", in: "GB29 NWBK 6016 1331 9268 19", want: "GB29…6819"},
+		{name: "trailing punctuation", in: "(LT12 3456 7890 1234 5678),", want: "(LT12…5678),"},
+		{
+			name: "a following word is not swallowed as a group",
+			in:   "LT12 3456 7890 1234 5678 from shop",
+			want: "LT12…5678 from shop",
+		},
+		{
+			name: "a following short word is not swallowed as a last group",
+			in:   "LT12 3456 7890 1234 5678 and more",
+			want: "LT12…5678 and more",
+		},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			got := r.Scrub(tc.in)
+
+			s.Equal(tc.want, got)
+		})
+	}
+}
+
+// TestScrubLeavesOrdinaryTextWithNumbersAlone guards the spaced-IBAN pattern against over-matching:
+// text that only resembles an IBAN's shape, mostly words or too short, comes back unchanged.
+func (s *RedactorSuite) TestScrubLeavesOrdinaryTextWithNumbersAlone() {
+	r := redact.New()
+	cases := []string{
+		"order ab12 from shop near park",
+		"paid AB12 2024 WITH CARD FROM HOME",
+		"room AB12 3456 on floor 2",
+		"card 1234 5678 9012 3456 expires 2027",
+		"invoice 2026 0921 paid in 3 parts of 12.50 EUR",
+		"LT12  3456  7890  1234  5678",
+	}
+
+	for _, in := range cases {
+		s.Run(in, func() {
+			s.Equal(in, r.Scrub(in))
+		})
+	}
+}
+
 func (s *RedactorSuite) TestScrubMasksTelegramBotTokenEvenWhenNotAConfiguredSecret() {
 	r := redact.New()
 	token := "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"

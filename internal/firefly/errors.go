@@ -11,7 +11,8 @@ import (
 // wrong" (fix the config) from "this account is gone" (fix the mapping) from "the data was cut
 // short" (the account is unchecked, never silently truncated).
 var (
-	// ErrUnauthorized means Firefly III rejected the personal access token (HTTP 401).
+	// ErrUnauthorized means Firefly III, or a proxy in front of it, rejected the personal access
+	// token (HTTP 401 or 403).
 	ErrUnauthorized = errors.New("firefly: unauthorized")
 	// ErrNotFound means the requested Firefly III resource does not exist (HTTP 404).
 	ErrNotFound = errors.New("firefly: not found")
@@ -25,7 +26,7 @@ var (
 // be an arbitrary proxy page, and a non-JSON body is reported by status code only (research R8).
 func statusError(status int) error {
 	switch status {
-	case http.StatusUnauthorized:
+	case http.StatusUnauthorized, http.StatusForbidden:
 		return fmt.Errorf("%w: Firefly token rejected (status %d)", ErrUnauthorized, status)
 	case http.StatusNotFound:
 		return fmt.Errorf("%w (status %d)", ErrNotFound, status)
