@@ -78,9 +78,10 @@ type descriptionCase struct {
 
 // headingCase is one account heading rendered for a bank account under a banks: map.
 type headingCase struct {
-	name string
-	acct bank.Account
-	want string
+	name    string
+	acct    bank.Account
+	firefly string
+	want    string
 }
 
 // TestGolden renders three fixture reports and compares Text byte for byte with the reviewed golden
@@ -174,7 +175,7 @@ func (s *RenderSuite) TestSectionOrderAndOmission() {
 	const (
 		problemLine = "- firefly: unreachable"
 		consentLine = "- seb: consent expires 2026-09-27 (5 days) — run: firefly-jar auth seb"
-		heading     = "Swedbank · LT12…3456 · Main (EUR)"
+		heading     = "Swedbank · LT12…3456 · Main (EUR) → Assets - EUR"
 		missingLine = "- 2026-09-20  -4.50 EUR  COFFEE SHOP"
 	)
 
@@ -230,30 +231,64 @@ func (s *RenderSuite) TestSectionOrderAndOmission() {
 	}
 }
 
-// TestAccountHeading pins `<bank display> · <masked IBAN or hash:xxxx…xxxx> · <name> (<CUR>)`: the
+// TestAccountHeading pins `<bank display> · <masked IBAN or hash:xxxx…xxxx> · <name> (<CUR>) → <Firefly name>`: the
 // bank's display name when configured, else its name, else (a bank key missing from banks:) the key
 // itself; the masked IBAN, else the masked hash.
 func (s *RenderSuite) TestAccountHeading() {
 	cases := []headingCase{
 		{
-			name: "display name wins over name",
-			acct: bankAccount("swedbank", ibanMain, hashWise, "EUR", "Main"),
-			want: "Swedbank · LT12…3456 · Main (EUR)",
+			name:    "display name wins over name",
+			acct:    bankAccount("swedbank", ibanMain, hashWise, "EUR", "Main"),
+			firefly: "Checking (EUR)",
+			want:    "Swedbank · LT12…3456 · Main (EUR) → Checking (EUR)",
 		},
 		{
-			name: "name when display is empty",
-			acct: bankAccount("revolut", ibanRevolut, "", "USD", "Revolut USD"),
-			want: "Revolut · LT99…0001 · Revolut USD (USD)",
+			name:    "name when display is empty",
+			acct:    bankAccount("revolut", ibanRevolut, "", "USD", "Revolut USD"),
+			firefly: "Travel ($)",
+			want:    "Revolut · LT99…0001 · Revolut USD (USD) → Travel ($)",
 		},
 		{
-			name: "hash when the account has no IBAN",
-			acct: bankAccount("wise", "", hashWise, "JPY", "Yen"),
-			want: "Wise · hash:ab12…ef12 · Yen (JPY)",
+			name:    "hash when the account has no IBAN",
+			acct:    bankAccount("wise", "", hashWise, "JPY", "Yen"),
+			firefly: "Yen wallet",
+			want:    "Wise · hash:ab12…ef12 · Yen (JPY) → Yen wallet",
 		},
 		{
-			name: "bank key when banks has no entry for it",
-			acct: bankAccount("unknownbank", ibanLow, "", "EUR", "Spare"),
-			want: "unknownbank · LT11…0002 · Spare (EUR)",
+			name:    "bank key when banks has no entry for it",
+			acct:    bankAccount("unknownbank", ibanLow, "", "EUR", "Spare"),
+			firefly: "Spare (EUR)",
+			want:    "unknownbank · LT11…0002 · Spare (EUR) → Spare (EUR)",
+		},
+		{
+			name:    "empty name segment omitted",
+			acct:    bankAccount("wise", "", hashWise, "EUR", ""),
+			firefly: "Euro wallet",
+			want:    "Wise · hash:ab12…ef12 (EUR) → Euro wallet",
+		},
+		{
+			name:    "whitespace-only name segment omitted",
+			acct:    bankAccount("wise", "", hashWise, "EUR", "   "),
+			firefly: "Euro wallet",
+			want:    "Wise · hash:ab12…ef12 (EUR) → Euro wallet",
+		},
+		{
+			name:    "empty Firefly name omits the arrow",
+			acct:    bankAccount("swedbank", ibanMain, hashWise, "EUR", "Main"),
+			firefly: "",
+			want:    "Swedbank · LT12…3456 · Main (EUR)",
+		},
+		{
+			name:    "Firefly name left empty by sanitizing omits the arrow",
+			acct:    bankAccount("swedbank", ibanMain, hashWise, "EUR", "Main"),
+			firefly: "\u202e \u200b",
+			want:    "Swedbank · LT12…3456 · Main (EUR)",
+		},
+		{
+			name:    "Firefly name is sanitized",
+			acct:    bankAccount("swedbank", ibanMain, hashWise, "EUR", "Main"),
+			firefly: "Check\u202eing",
+			want:    "Swedbank · LT12…3456 · Main (EUR) → Checking",
 		},
 	}
 
@@ -261,6 +296,7 @@ func (s *RenderSuite) TestAccountHeading() {
 		tc := &cases[i]
 		s.Run(tc.name, func() {
 			acct := s.checkedAccount(tc.acct, 2, s.missing("2026-09-20", "-4.50", tc.acct.Currency, "COFFEE SHOP"))
+			acct.Mapping.Firefly.Name = tc.firefly
 			d := digest.Render(report.RunReport{Window: s.window(), Accounts: []report.AccountResult{acct}}, banks())
 
 			s.Require().Len(d.Lines, 5)
@@ -432,15 +468,15 @@ func (s *RenderSuite) TestAccountSorting() {
 
 	s.Equal([]string{
 		"Missing in Firefly III",
-		"Revolut · LT11…0002 · Low (EUR)",
+		"Revolut · LT11…0002 · Low (EUR) → Assets - EUR",
 		"- 2026-09-20  -1.00 EUR  FEE",
-		"Revolut · LT99…0001 · Revolut EUR (EUR)",
+		"Revolut · LT99…0001 · Revolut EUR (EUR) → Assets - EUR",
 		"- 2026-09-20  -1.00 EUR  FEE",
-		"Revolut · LT99…0001 · Revolut USD (USD)",
+		"Revolut · LT99…0001 · Revolut USD (USD) → Assets - USD",
 		"- 2026-09-20  -1.00 EUR  FEE",
-		"Revolut · hash:ab12…ef12 · Hashed (EUR)",
+		"Revolut · hash:ab12…ef12 · Hashed (EUR) → Assets - EUR",
 		"- 2026-09-20  -1.00 EUR  FEE",
-		"Swedbank · LT12…3456 · Main (EUR)",
+		"Swedbank · LT12…3456 · Main (EUR) → Assets - EUR",
 		"- 2026-09-20  -1.00 EUR  FEE",
 	}, d.Lines[2:])
 }
@@ -608,7 +644,7 @@ func (s *RenderSuite) TestFreeTextFieldsAreSanitized() {
 		"- revolut LT99…0001 (MainNIAM): unchecked — rate limited",
 		"",
 		"Missing in Firefly III",
-		"Swedbank · LT12…3456 · MainNIAM (EUR)",
+		"Swedbank · LT12…3456 · MainNIAM (EUR) → Assets - EUR",
 		"- 2026-09-20  -4.50 EUR  COFFEE SHOP",
 	}, d.Lines[1:])
 
@@ -791,10 +827,11 @@ func (s *RenderSuite) fullReport() report.RunReport {
 }
 
 // missingOnlyReport has missing transactions only: two accounts, one identified by hash with a
-// zero-decimal currency, and lines that tie on date and on amount; testdata/digest/missing_only.golden
-// is its digest.
+// zero-decimal currency and no account name (the bank gave none, so the heading omits that segment
+// rather than showing it blank), and lines that tie on date and on amount;
+// testdata/digest/missing_only.golden is its digest.
 func (s *RenderSuite) missingOnlyReport() report.RunReport {
-	wise := s.checkedAccount(bankAccount("wise", "", hashWise, "JPY", "Yen"), 0,
+	wise := s.checkedAccount(bankAccount("wise", "", hashWise, "JPY", ""), 0,
 		s.missing("2026-09-05", "-1200", "JPY", "RAMEN BAR"))
 	wise.Mapping.Status = accountmap.Override
 
@@ -872,7 +909,7 @@ func (s *RenderSuite) checkedAccount(
 			Status: accountmap.Auto,
 			Firefly: &firefly.Account{
 				ID:            "3",
-				Name:          acct.Name,
+				Name:          "Assets - " + acct.Currency,
 				IBAN:          acct.IBAN,
 				Currency:      acct.Currency,
 				DecimalPlaces: places,

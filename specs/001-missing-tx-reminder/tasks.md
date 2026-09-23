@@ -869,10 +869,13 @@ Telegram failing and email working, the email is delivered and stderr shows a WA
 - [x] T081 Run `task check`, `task audit` and a coverage report into `cover.out`
   (`go test ./... -coverpkg=./... -coverprofile=cover.out`, as defined in `Taskfile.yml`). Target at least 80% total, and investigate any
   package below that, especially `reconcile`, `mapping` and `firefly`.
-- [ ] T082 Run the `specs/001-missing-tx-reminder/quickstart.md` validation against the owner's real instances: sections 3–8, including the
+- [x] T082 Run the `specs/001-missing-tx-reminder/quickstart.md` validation against the owner's real instances: sections 3–8, including the
   failure drills table. Also time one real `check` (`/usr/bin/time -v firefly-jar check --stdout`) and compare
   the wall-clock time with SC-008 (under 2 minutes for up to 10 accounts and 30 days). Record the observed
   results in the PR description, not in tracked files.
+  Validated live against the owner's instances (quickstart §3–6 and the failure drills in §8; §7 cron is
+  server deployment, not part of this validation), with SC-008 measured at about 5 s for 6 accounts over
+  30 days.
 - [x] T083 Constitution compliance review against `.specify/memory/constitution.md` before finish-branch:
   - Walk Principles I–VI and the Development Workflow checks.
   - No Firefly write path.

@@ -18,9 +18,9 @@ firefly-jar: 4 missing, 2 unchecked accounts (window 2026-08-24 – 2026-09-22)
 - seb: consent expires 2026-09-27 (5 days) — run: firefly-jar auth seb
 
 Missing in Firefly III
-Revolut · LT99…0001 · Revolut EUR (EUR)
+Revolut · LT99…0001 · Revolut EUR (EUR) → Revolut (€)
 - 2026-08-24  -12.00 EUR  NETFLIX.COM  🔚 last reminder
-Swedbank · LT12…3456 · Main (EUR)
+Swedbank · LT12…3456 · Main (EUR) → Checking - Swedbank
 - 2026-09-21  -4.50 EUR  COFFEE ISLAND VILNIUS  ⏳ pending
 - 2026-09-19  -63.12 EUR  MAXIMA LT
 - 2026-09-15  -4.50 EUR  COFFEE ISLAND VILNIUS  ≈ Firefly #7 on 2026-09-13 (paired with another)
@@ -35,7 +35,12 @@ Swedbank · LT12…3456 · Main (EUR)
   <error>` for anything else. Then one line per unchecked account in account order, `- <bank key> <masked
   IBAN or hash:xxxx…xxxx> (<bank account name>): unchecked — <reason>`, followed by `: <detail>` when there
   is one and, for an ambiguous mapping, the candidate ids ` (Firefly #21, #22)`.
-- Account heading: `<bank display name> · <masked IBAN or hash:xxxx…xxxx> · <bank account name> (<CUR>)`.
+- Account heading: `<bank display name> · <masked IBAN or hash:xxxx…xxxx> · <bank account name> (<CUR>) →
+  <Firefly III account name>`, so the heading says where the transactions come from and where they are
+  entered. Both names are checked after sanitizing (control and format characters removed, same
+  convention as the description and unchecked detail); when nothing is left, or only whitespace, that
+  segment (` · <bank account name>` or ` → <Firefly III account name>`) is omitted rather than left blank,
+  e.g. `<bank display name> · <masked IBAN or hash:xxxx…xxxx> (<CUR>) → <Firefly III account name>`.
 - Line: `<date YYYY-MM-DD>  <signed amount, account minor-unit precision, '.' decimal> <CUR>  <description>`
   followed by flags `⏳ pending`, `🔚 last reminder` where applicable, then an optional hint (FR-025a):
   `≈ Firefly #<id> on <YYYY-MM-DD> (paired with another)` for `Taken`, or

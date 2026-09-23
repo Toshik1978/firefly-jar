@@ -45,10 +45,28 @@ func (rn *renderer) missingLines(accounts []accountView) []string {
 	return lines
 }
 
-// heading renders `<bank display> · <masked id> · <account name> (<CUR>)`.
+// heading renders `<bank display> · <masked id> · <account name> (<CUR>) → <Firefly account name>`,
+// naming the Firefly III account the owner enters these transactions into. A bank account name or
+// a Firefly III name that is empty once sanitized drops its segment (` · <name>` or ` → <name>`)
+// entirely rather than leaving it blank.
 func (rn *renderer) heading(m accountmap.Mapping, masked string) string {
-	return fmt.Sprintf("%s · %s · %s (%s)",
-		rn.bankDisplay(m.Bank.BankKey), masked, Strip(m.Bank.Name), Strip(m.Bank.Currency))
+	var b strings.Builder
+
+	b.WriteString(rn.bankDisplay(m.Bank.BankKey) + " · " + masked)
+
+	if name := strings.TrimSpace(Strip(m.Bank.Name)); name != "" {
+		b.WriteString(" · " + name)
+	}
+
+	b.WriteString(" (" + Strip(m.Bank.Currency) + ")")
+
+	if m.Firefly != nil {
+		if name := strings.TrimSpace(Strip(m.Firefly.Name)); name != "" {
+			b.WriteString(" → " + name)
+		}
+	}
+
+	return b.String()
 }
 
 // bankDisplay names a bank the way its heading shows it: the configured display name, else the

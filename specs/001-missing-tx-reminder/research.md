@@ -427,3 +427,23 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
   decisions, kept only as long as the dependency policy required stdlib-only code; the owner widened that
   policy on 2026-09-22. Depending on `cloud.google.com/go/civil` directly was rejected only because of its
   module tree, not the type itself.
+
+## R20. Foreign-currency transactions (live observation)
+
+- **Decision**: No change to matching. Amounts are compared in the account currency.
+- **Evidence** (from the live run, stated generically): Enable Banking reported `transaction_amount` in the
+  account currency for every transaction over 90 days on six accounts of two banks. One bank sends no
+  `exchange_rate` at all. The other attaches `exchange_rate` only to in-app currency exchanges
+  (`bank_transaction_code.code` `EXCHANGE`), shaped `{exchange_rate, unit_currency = the foreign currency,
+  instructed_amount = the account-currency amount, rate_type null, contract_identification null}`, with no
+  `source_currency`/`target_currency`. On the Firefly III side, foreign amounts appear on transfers between
+  currency pockets (`amount` in the source account currency, `foreign_amount` in the destination currency),
+  and the check matched such an exchange.
+- **Not yet observed**: a card payment made in a foreign currency (the account where those happen was not
+  exposed by the bank).
+- **Revisit trigger**: if such a payment is ever reported missing although it was entered, capture its
+  `exchange_rate` shape and reconsider matching on `instructed_amount` or Firefly `foreign_amount`.
+- **Alternatives considered**:
+  - Matching on either amount: rejected for now, more false matches with no evidence it is needed.
+  - Matching on Firefly `foreign_amount`: rejected for now, needs evidence from an observed foreign-currency
+    card payment first.

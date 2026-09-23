@@ -9,9 +9,9 @@ firefly-jar: 5 missing, 2 unchecked accounts (window 2026-08-24 – 2026-09-22)
 - seb: consent expires 2026-09-27 (5 days) — run: firefly-jar auth seb
 
 Missing in Firefly III
-Revolut · LT99…0001 · Revolut EUR (EUR)
+Revolut · LT99…0001 · Revolut EUR (EUR) → Assets - EUR
 - 2026-08-24  -12.00 EUR  STREAMING SERVICE  🔚 last reminder
-Swedbank · LT12…3456 · Main (EUR)
+Swedbank · LT12…3456 · Main (EUR) → Assets - EUR
 - 2026-09-21  -4.50 EUR  COFFEE SHOP  ⏳ pending
 - 2026-09-19  -63.12 EUR  SUPERMARKET
 - 2026-09-15  -4.50 EUR  COFFEE SHOP  ≈ Firefly #7 on 2026-09-13 (paired with another)

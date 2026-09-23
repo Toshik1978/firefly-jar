@@ -195,3 +195,6 @@ Table-driven subtests use `s.Run(tc.name, func() { … })`. Also:
   such research are applied directly and stated as facts, with no reference to where they came from.
 - A filesystem path on anyone's machine, a real account identifier, a token, or a personal email address.
   Examples use `example.com`, `LT12…3456`-style masked IBANs, and zeroed UUIDs.
+- `.beads/issues.jsonl` is tracked. Bead titles, descriptions and comments follow the same rule: no data
+  from a live run (bank names in use, IBAN fragments, account ids, merchants, amounts, hosts, chat ids,
+  emails). Describe live findings generically, the way research.md does.
