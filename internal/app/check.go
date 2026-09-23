@@ -24,7 +24,8 @@ import (
 // Deps is everything one command run needs, built by the caller so the run itself never reads the
 // environment, the console or the real clock. Check reads State and never writes it: check remembers
 // nothing between runs (FR-012); only auth saves it. Authorizer is set for auth alone, so check and
-// accounts can never start or revoke a consent. Close, when set, releases what the builder opened
+// accounts can never start or revoke a consent. Stderr is used only for the FR-028 fallback: the full
+// digest text, when every delivery failed. Close, when set, releases what the builder opened
 // (the log file); the CLI calls it once the command is done, and Check itself never does.
 type Deps struct {
 	Config     *config.Config
@@ -37,6 +38,7 @@ type Deps struct {
 	Log        *slog.Logger
 	Now        func() time.Time
 	Stdout     io.Writer
+	Stderr     io.Writer
 	Close      func()
 }
 
@@ -68,7 +70,12 @@ func Check(ctx context.Context, deps Deps, opts CheckOptions) (report.RunReport,
 	run.deliver(ctx, &rep, opts)
 	run.logSummary(ctx, &rep)
 
-	return rep, rep.ExitCode()
+	code := rep.ExitCode()
+	if code == 2 {
+		run.logFailure(ctx, &rep)
+	}
+
+	return rep, code
 }
 
 // newCheckRun reads the clock exactly once and derives today and the window from it in the
@@ -149,7 +156,9 @@ func (r *checkRun) reconcileBank(ctx context.Context, rep *report.RunReport, key
 
 // deliver renders the digest when the report needs one and either prints it (--stdout) or fans it
 // out to every notifier, recording how delivery went. A digest that could not be printed is a
-// run-level problem, so the run never ends 0 or 1 without the owner having seen it.
+// run-level problem, so the run never ends 0 or 1 without the owner having seen it. When every
+// notifier failed for every recipient, the digest still reaches the owner as the FR-028 stderr
+// fallback, alongside a WARN already logged for each individual failure.
 func (r *checkRun) deliver(ctx context.Context, rep *report.RunReport, opts CheckOptions) {
 	if !rep.DigestNeeded() {
 		return
@@ -157,12 +166,20 @@ func (r *checkRun) deliver(ctx context.Context, rep *report.RunReport, opts Chec
 
 	d := digest.Render(*rep, r.deps.Config.Banks)
 
-	if !opts.Stdout {
-		rep.Delivery = notify.FanOut(ctx, r.deps.Notifiers, d, r.deps.Redactor)
+	if opts.Stdout {
+		r.printDigest(ctx, rep, d)
 
 		return
 	}
 
+	rep.Delivery = notify.FanOut(ctx, r.deps.Notifiers, d, r.deps.Redactor)
+	r.warnDeliveryFailures(ctx, rep.Delivery.Failures)
+	r.fallbackToStderr(ctx, rep.Delivery, d)
+}
+
+// printDigest writes d to stdout for a --stdout run. A write failure is a run-level problem, so
+// the run never ends 0 or 1 without the owner having seen the digest some other way.
+func (r *checkRun) printDigest(ctx context.Context, rep *report.RunReport, d digest.Digest) {
 	if _, err := io.WriteString(r.deps.Stdout, d.Text()); err != nil {
 		r.deps.Log.ErrorContext(ctx, "print digest failed", "error", err)
 		rep.Problems = append(rep.Problems, report.Problem{
@@ -172,8 +189,31 @@ func (r *checkRun) deliver(ctx context.Context, rep *report.RunReport, opts Chec
 	}
 }
 
-// logSummary writes the run's one INFO summary record (FR-038). Only counts and dates appear in
-// it, never a description.
+// warnDeliveryFailures logs one WARN per failed recipient (FR-028), whatever else succeeded, so
+// cron's mail-on-output always names every recipient the digest did not reach.
+func (r *checkRun) warnDeliveryFailures(ctx context.Context, failures []report.DeliveryFailure) {
+	for _, f := range failures {
+		r.deps.Log.WarnContext(ctx, "delivery failed",
+			"channel", f.Channel, "recipient", f.Recipient, "reason", f.Reason)
+	}
+}
+
+// fallbackToStderr writes d's full text to stderr when delivery failed for every recipient across
+// every channel (FR-028): the owner still sees the digest even though no channel delivered it. A
+// partial failure, or no attempt at all, leaves stderr to the per-recipient WARNs alone.
+func (r *checkRun) fallbackToStderr(ctx context.Context, delivery report.Delivery, d digest.Digest) {
+	if delivery.Attempted == 0 || delivery.Succeeded > 0 {
+		return
+	}
+
+	if _, err := io.WriteString(r.deps.Stderr, d.Text()); err != nil {
+		r.deps.Log.ErrorContext(ctx, "print digest failed", "error", err)
+	}
+}
+
+// logSummary writes the run's one INFO summary record (FR-038, constitution §VI "plus any
+// errors"). Only counts and dates appear in it, never a description; problems and delivery_failed
+// carry the same run-level error counts the stderr ERROR line uses on an exit-2 run.
 func (r *checkRun) logSummary(ctx context.Context, rep *report.RunReport) {
 	sum := rep.Summary()
 
@@ -185,6 +225,22 @@ func (r *checkRun) logSummary(ctx context.Context, rep *report.RunReport) {
 		slog.Int("missing", sum.Missing),
 		slog.Int("deduplicated", sum.Deduplicated),
 		slog.Int("void", sum.Void),
+		slog.Int("problems", len(rep.Problems)),
+		slog.Int("delivery_failed", rep.Delivery.Attempted-rep.Delivery.Succeeded),
+	)
+}
+
+// logFailure writes the run's one ERROR summary line to stderr (FR-032, FR-033, FR-039,
+// contracts/cli.md) on every exit-2 run, so cron's mail-on-output carries a single, greppable
+// reason the run failed instead of the full log. Exit 0 and 1 stay silent on stderr; this is
+// called only when ExitCode() is 2.
+func (r *checkRun) logFailure(ctx context.Context, rep *report.RunReport) {
+	sum := rep.Summary()
+
+	r.deps.Log.ErrorContext(ctx, "check failed",
+		slog.Int("unchecked", sum.AccountsUnchecked),
+		slog.Int("problems", len(rep.Problems)),
+		slog.Int("delivery_failed", rep.Delivery.Attempted-rep.Delivery.Succeeded),
 	)
 }
 

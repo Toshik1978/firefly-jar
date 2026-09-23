@@ -336,7 +336,7 @@ func (s *AcceptanceUS3Suite) TestScenario2MultiCurrencyAccountsMapToTheirOwnCurr
 
 	code = h.run("check", "--stdout", "--config", h.configPath)
 	s.Equal(2, code, "the fixture's ambiguous and unmapped accounts still make this run fail")
-	s.Empty(h.stderr.String())
+	s.Contains(h.stderr.String(), `level=ERROR msg="check failed"`, "an exit-2 run's one ERROR summary line")
 
 	out := h.stdout.String()
 	s.Contains(out, us3BankDisplay+" · "+redact.MaskIBAN(us3MultiIBAN)+" · "+us3MultiEURName+" (EUR)",
@@ -357,7 +357,7 @@ func (s *AcceptanceUS3Suite) TestScenario3AnAmbiguousMappingIsUncheckedWithExit2
 	code := h.run("check", "--stdout", "--config", h.configPath)
 
 	s.Equal(2, code)
-	s.Empty(h.stderr.String())
+	s.Contains(h.stderr.String(), `level=ERROR msg="check failed"`, "an exit-2 run's one ERROR summary line")
 	s.Contains(h.stdout.String(),
 		"- "+us3Bank+" "+redact.MaskIBAN(us3AmbiguousIBAN)+" ("+us3AmbiguousName+
 			"): unchecked — ambiguous mapping (Firefly #"+us3AmbiguousFFA+", #"+us3AmbiguousFFB+")")
@@ -395,7 +395,7 @@ func (s *AcceptanceUS3Suite) TestScenario5AnExcludedAccountIsNeitherCheckedNorRe
 	code := h.run("check", "--stdout", "--config", h.configPath)
 
 	s.Equal(2, code, "the fixture's ambiguous and unmapped accounts still make this run fail")
-	s.Empty(h.stderr.String())
+	s.Contains(h.stderr.String(), `level=ERROR msg="check failed"`, "an exit-2 run's one ERROR summary line")
 
 	out := h.stdout.String()
 	s.NotContains(out, us3ExcludedName, "an excluded account is never named in the digest")
@@ -417,7 +417,7 @@ func (s *AcceptanceUS3Suite) TestScenario6AnUnmappedAccountIsUncheckedWithReason
 	code := h.run("check", "--stdout", "--config", h.configPath)
 
 	s.Equal(2, code, `an unmapped, non-excluded account ends the run with the "check failed" outcome`)
-	s.Empty(h.stderr.String())
+	s.Contains(h.stderr.String(), `level=ERROR msg="check failed"`, "an exit-2 run's one ERROR summary line")
 	s.Contains(
 		h.stdout.String(),
 		"- "+us3Bank+" "+redact.MaskIBAN(
@@ -628,35 +628,22 @@ func (s *AcceptanceUS3Suite) newHarness(
 // runs --stdout) and the two accounts: overrides (T069's scenario 4 hash redirect and scenario 5
 // exclude rule).
 func (s *AcceptanceUS3Suite) configYAML(dir, fireflyURL string) string {
-	var b strings.Builder
-
-	b.WriteString("timezone: UTC\n")
-	b.WriteString("window_days: 30\n")
-	b.WriteString("date_tolerance_days: 3\n")
-	b.WriteString("consent_warn_days: 7\n")
-	b.WriteString("state_file: " + filepath.Join(dir, "state.json") + "\n")
-	b.WriteString("log_file: " + filepath.Join(dir, "firefly-jar.log") + "\n")
-	b.WriteString("log_level: info\n")
-	b.WriteString("firefly:\n")
-	b.WriteString("  url: " + fireflyURL + "\n")
-	b.WriteString("enablebanking:\n")
-	b.WriteString("  app_id: 00000000-0000-0000-0000-000000000000\n")
-	b.WriteString("  private_key_file: " + filepath.Join(dir, "enablebanking.pem") + "\n")
-	b.WriteString("  redirect_url: https://example.com/eb-callback\n")
-	b.WriteString("banks:\n")
-	fmt.Fprintf(
-		&b,
-		"  %s: { name: %q, country: %s, display: %q }\n",
-		us3Bank,
-		us3BankName,
-		us3BankCountry,
-		us3BankDisplay,
-	)
-	b.WriteString("accounts:\n")
-	fmt.Fprintf(&b, "  - { bank: %s, hash: %q, firefly_account_id: %q }\n", us3Bank, us3OverrideHash, us3OverrideFFID)
-	fmt.Fprintf(&b, "  - { bank: %s, iban: %s, exclude: true }\n", us3Bank, us3ExcludedIBAN)
-
-	return b.String()
+	return buildConfigYAML(configOpts{
+		timezone:       "UTC",
+		stateFile:      filepath.Join(dir, "state.json"),
+		logFile:        filepath.Join(dir, "firefly-jar.log"),
+		fireflyURL:     fireflyURL,
+		privateKeyFile: filepath.Join(dir, "enablebanking.pem"),
+		banks: []configBank{
+			{key: us3Bank, name: us3BankName, country: us3BankCountry, display: us3BankDisplay},
+		},
+		overrides: []string{
+			fmt.Sprintf(
+				"  - { bank: %s, hash: %q, firefly_account_id: %q }\n", us3Bank, us3OverrideHash, us3OverrideFFID,
+			),
+			fmt.Sprintf("  - { bank: %s, iban: %s, exclude: true }\n", us3Bank, us3ExcludedIBAN),
+		},
+	})
 }
 
 // newIndepHarness builds the Independent Test's own isolated fixture: one bank, us3IndepBank, with
@@ -729,31 +716,27 @@ func (s *AcceptanceUS3Suite) newIndepHarness() *us3Harness {
 // once withOverride is set, the one hash override that maps the card account to Firefly III
 // account #202.
 func (s *AcceptanceUS3Suite) indepConfigYAML(dir, fireflyURL string, withOverride bool) string {
-	var b strings.Builder
-
-	b.WriteString("timezone: UTC\n")
-	b.WriteString("window_days: 30\n")
-	b.WriteString("date_tolerance_days: 3\n")
-	b.WriteString("consent_warn_days: 7\n")
-	b.WriteString("state_file: " + filepath.Join(dir, "state.json") + "\n")
-	b.WriteString("log_file: " + filepath.Join(dir, "firefly-jar.log") + "\n")
-	b.WriteString("log_level: info\n")
-	b.WriteString("firefly:\n")
-	b.WriteString("  url: " + fireflyURL + "\n")
-	b.WriteString("enablebanking:\n")
-	b.WriteString("  app_id: 00000000-0000-0000-0000-000000000000\n")
-	b.WriteString("  private_key_file: " + filepath.Join(dir, "enablebanking.pem") + "\n")
-	b.WriteString("  redirect_url: https://example.com/eb-callback\n")
-	b.WriteString("banks:\n")
-	fmt.Fprintf(&b, "  %s: { name: %q, country: LT, display: %q }\n", us3IndepBank, us3IndepBankName, us3IndepBankName)
-
+	var overrides []string
 	if withOverride {
-		b.WriteString("accounts:\n")
-		fmt.Fprintf(&b, "  - { bank: %s, hash: %q, firefly_account_id: %q }\n",
-			us3IndepBank, us3IndepCardHash, us3IndepCardFFID)
+		overrides = []string{
+			fmt.Sprintf(
+				"  - { bank: %s, hash: %q, firefly_account_id: %q }\n",
+				us3IndepBank, us3IndepCardHash, us3IndepCardFFID,
+			),
+		}
 	}
 
-	return b.String()
+	return buildConfigYAML(configOpts{
+		timezone:       "UTC",
+		stateFile:      filepath.Join(dir, "state.json"),
+		logFile:        filepath.Join(dir, "firefly-jar.log"),
+		fireflyURL:     fireflyURL,
+		privateKeyFile: filepath.Join(dir, "enablebanking.pem"),
+		banks: []configBank{
+			{key: us3IndepBank, name: us3IndepBankName, country: "LT", display: us3IndepBankName},
+		},
+		overrides: overrides,
+	})
 }
 
 // writeSecret writes content to path readable by the owner only.

@@ -69,6 +69,7 @@ func BuildDeps(_ context.Context, in BuildInput) (Deps, error) {
 		Log:      log,
 		Now:      in.Env.Now,
 		Stdout:   in.Env.Stdout,
+		Stderr:   in.Env.Stderr,
 		Close:    closeLog,
 	}
 

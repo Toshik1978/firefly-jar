@@ -362,30 +362,21 @@ func (s *AcceptanceUS2Suite) newHarness(
 // configYAML renders the case's config: the given banks, a Firefly III URL and consent_warn_days
 // 7, with no notify: section at all (every check in this suite runs --stdout).
 func (*AcceptanceUS2Suite) configYAML(dir, fireflyURL string, banks map[string]config.Bank) string {
-	var b strings.Builder
-
-	b.WriteString("timezone: Europe/Vilnius\n")
-	b.WriteString("window_days: 30\n")
-	b.WriteString("date_tolerance_days: 3\n")
-	b.WriteString("consent_warn_days: 7\n")
-	b.WriteString("state_file: " + filepath.Join(dir, "state.json") + "\n")
-	b.WriteString("log_file: " + filepath.Join(dir, "firefly-jar.log") + "\n")
-	b.WriteString("log_level: info\n")
-	b.WriteString("firefly:\n")
-	b.WriteString("  url: " + fireflyURL + "\n")
-	b.WriteString("enablebanking:\n")
-	b.WriteString("  app_id: 00000000-0000-0000-0000-000000000000\n")
-	b.WriteString("  private_key_file: " + filepath.Join(dir, "enablebanking.pem") + "\n")
-	b.WriteString("  redirect_url: https://example.com/eb-callback\n")
-	b.WriteString("banks:\n")
+	cfgBanks := make([]configBank, 0, len(banks))
 
 	for _, key := range sortedBankKeys(banks) {
 		bk := banks[key]
-		b.WriteString("  " + key + ": { name: " + bk.Name + ", country: " + bk.Country + ", display: " +
-			bk.Display + " }\n")
+		cfgBanks = append(cfgBanks, configBank{key: key, name: bk.Name, country: bk.Country, display: bk.Display})
 	}
 
-	return b.String()
+	return buildConfigYAML(configOpts{
+		timezone:       "Europe/Vilnius",
+		stateFile:      filepath.Join(dir, "state.json"),
+		logFile:        filepath.Join(dir, "firefly-jar.log"),
+		fireflyURL:     fireflyURL,
+		privateKeyFile: filepath.Join(dir, "enablebanking.pem"),
+		banks:          cfgBanks,
+	})
 }
 
 // sortedBankKeys returns banks's keys sorted, so the rendered config is deterministic.

@@ -794,7 +794,7 @@ read-only `accounts [--ids]` command (FR-015, FR-017).
 **Independent Test**: With Firefly unreachable, a problem-only digest is sent and the exit is 2. With
 Telegram failing and email working, the email is delivered and stderr shows a WARN.
 
-- [ ] T070 [P] [US4] (FR-032, FR-033) Write `IsolationSuite` in `internal/app/isolation_test.go`:
+- [x] T070 [P] [US4] (FR-032, FR-033) Write `IsolationSuite` in `internal/app/isolation_test.go`:
   - Bank A's provider returns `ErrRateLimited` → A's accounts are unchecked "rate limited", bank B is still
     reconciled and its missing transactions reported, and exit is 2.
   - A generic `*bank.Error` → unchecked "bank error: <redacted detail>".
@@ -804,15 +804,15 @@ Telegram failing and email working, the email is delivered and stderr shows a WA
   - Firefly `ListAccountTransactions` fails for one account → only that account is unchecked
     `FireflyError`/`FireflyDataIncomplete`.
   - Every exit-2 run prints one ERROR summary line to stderr.
-- [ ] T071 [US4] Implement per-bank and per-account error isolation plus the stderr ERROR summary in
+- [x] T071 [US4] Implement per-bank and per-account error isolation plus the stderr ERROR summary in
   `internal/app/check.go`. Make T070 pass.
-- [ ] T072 [P] [US4] Write `DeliverySuite` in `internal/app/delivery_test.go`:
+- [x] T072 [P] [US4] Write `DeliverySuite` in `internal/app/delivery_test.go`:
   - Telegram fails and email succeeds → exit follows the findings (1), with one WARN on stderr naming the
     channel and the masked recipient.
   - Every recipient fails → the full digest text is written to stderr and exit is 2.
   - A partial failure within one channel (one chat id of two) → the other is delivered.
-- [ ] T073 [US4] Implement the delivery fallback in `internal/app/check.go`. Make T072 pass.
-- [ ] T074 [P] [US4] Write `FailFastSuite` in `internal/app/failfast_test.go`:
+- [x] T073 [US4] Implement the delivery fallback in `internal/app/check.go`. Make T072 pass.
+- [x] T074 [P] [US4] Write `FailFastSuite` in `internal/app/failfast_test.go`:
   - For `check`, `auth` and `accounts`, each of these gives exit 2 with a stderr message naming the key or
     file, and **zero** hits on the Firefly, Enable Banking, Telegram and SMTP fakes:
     - an unknown config key;
@@ -824,9 +824,9 @@ Telegram failing and email working, the email is delivered and stderr shows a WA
       `accounts`;
     - an unwritable `log_file` directory fails `check` only, and `auth` and `accounts` still succeed.
   - A secret file with mode 0644 produces a WARN and continues.
-- [ ] T075 [US4] Implement fail-fast validation ordering in `internal/app/cli.go` and `internal/app/wire.go`:
+- [x] T075 [US4] Implement fail-fast validation ordering in `internal/app/cli.go` and `internal/app/wire.go`:
   config load, then validation, then state load, all before building any client. Make T074 pass.
-- [ ] T076 [US4] Write the US4 acceptance test `internal/app/acceptance_us4_test.go` covering spec US4 scenarios 1–5.
+- [x] T076 [US4] Write the US4 acceptance test `internal/app/acceptance_us4_test.go` covering spec US4 scenarios 1–5.
 
 **Checkpoint**: A quiet run always means "verified complete". All four stories are done.
 

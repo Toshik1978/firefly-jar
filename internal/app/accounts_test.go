@@ -624,33 +624,28 @@ func (s *AccountsCommandSuite) writeState(path string, bank2Accounts []state.Acc
 // account, excluded). withBank4 also declares acctBank4 under banks:, with no accounts: override of
 // its own, for the two session-problem cases (fix round 1 on fj-xwu.5.4).
 func (s *AccountsCommandSuite) configYAML(dir, fireflyURL string, withBank4 bool) string {
-	var b strings.Builder
-
-	b.WriteString("timezone: UTC\n")
-	b.WriteString("window_days: 30\n")
-	b.WriteString("date_tolerance_days: 3\n")
-	b.WriteString("consent_warn_days: 7\n")
-	b.WriteString("state_file: " + filepath.Join(dir, "state.json") + "\n")
-	b.WriteString("log_file: " + filepath.Join(dir, "firefly-jar.log") + "\n")
-	b.WriteString("log_level: info\n")
-	b.WriteString("firefly:\n")
-	b.WriteString("  url: " + fireflyURL + "\n")
-	b.WriteString("enablebanking:\n")
-	b.WriteString("  app_id: 00000000-0000-0000-0000-000000000000\n")
-	b.WriteString("  private_key_file: " + filepath.Join(dir, "enablebanking.pem") + "\n")
-	b.WriteString("  redirect_url: https://example.com/eb-callback\n")
-	b.WriteString("banks:\n")
-	fmt.Fprintf(&b, "  %s: { name: %q, country: %s }\n", acctBank1, acctBank1Name, acctBank1Country)
-	fmt.Fprintf(&b, "  %s: { name: %q, country: %s }\n", acctBank2, acctBank2Name, acctBank2Country)
-	fmt.Fprintf(&b, "  %s: { name: %q, country: %s }\n", acctBank3, acctBank3Name, acctBank3Country)
-
-	if withBank4 {
-		fmt.Fprintf(&b, "  %s: { name: %q, country: %s }\n", acctBank4, acctBank4Name, acctBank4Country)
+	banks := []configBank{
+		{key: acctBank1, name: acctBank1Name, country: acctBank1Country},
+		{key: acctBank2, name: acctBank2Name, country: acctBank2Country},
+		{key: acctBank3, name: acctBank3Name, country: acctBank3Country},
 	}
 
-	b.WriteString("accounts:\n")
-	fmt.Fprintf(&b, "  - { bank: %s, hash: %q, firefly_account_id: %q }\n", acctBank1, acctCardHash, acctCardFireflyID)
-	fmt.Fprintf(&b, "  - { bank: %s, iban: %s, exclude: true }\n", acctBank3, acctClosedIBAN)
+	if withBank4 {
+		banks = append(banks, configBank{key: acctBank4, name: acctBank4Name, country: acctBank4Country})
+	}
 
-	return b.String()
+	return buildConfigYAML(configOpts{
+		timezone:       "UTC",
+		stateFile:      filepath.Join(dir, "state.json"),
+		logFile:        filepath.Join(dir, "firefly-jar.log"),
+		fireflyURL:     fireflyURL,
+		privateKeyFile: filepath.Join(dir, "enablebanking.pem"),
+		banks:          banks,
+		overrides: []string{
+			fmt.Sprintf(
+				"  - { bank: %s, hash: %q, firefly_account_id: %q }\n", acctBank1, acctCardHash, acctCardFireflyID,
+			),
+			fmt.Sprintf("  - { bank: %s, iban: %s, exclude: true }\n", acctBank3, acctClosedIBAN),
+		},
+	})
 }

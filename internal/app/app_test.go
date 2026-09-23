@@ -16,4 +16,8 @@ func TestApp(t *testing.T) {
 	suite.Run(t, new(AcceptanceUS2Suite))
 	suite.Run(t, new(AccountsCommandSuite))
 	suite.Run(t, new(AcceptanceUS3Suite))
+	suite.Run(t, new(IsolationSuite))
+	suite.Run(t, new(DeliverySuite))
+	suite.Run(t, new(FailFastSuite))
+	suite.Run(t, new(AcceptanceUS4Suite))
 }
