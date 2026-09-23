@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 	"github.com/Toshik1978/firefly-jar/internal/reconcile"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/report"
@@ -14,18 +14,18 @@ import (
 
 // checkAccount reconciles one mapped bank account, or records why it could not be. An account
 // that cannot be mapped costs no bank call: its transactions could not be compared with anything.
-func (r *checkRun) checkAccount(ctx context.Context, sessionID string, m mapping.Mapping) report.AccountResult {
+func (r *checkRun) checkAccount(ctx context.Context, sessionID string, m accountmap.Mapping) report.AccountResult {
 	switch {
-	case m.Status == mapping.Excluded:
+	case m.Status == accountmap.Excluded:
 		return report.AccountResult{Mapping: m}
-	case m.Status == mapping.Unmapped && m.TargetID != "":
+	case m.Status == accountmap.Unmapped && m.TargetID != "":
 		// An accounts: override named a Firefly III account id nothing has (data-model.md
 		// "Mapping" resolution order step 1). m.Detail already carries the full sentence for the
 		// accounts command; the digest wants only the bare id, so it is not repeated twice.
 		return r.unchecked(ctx, m, report.OverrideTargetMissing, "#"+m.TargetID)
-	case m.Status == mapping.Unmapped:
+	case m.Status == accountmap.Unmapped:
 		return r.unchecked(ctx, m, report.Unmapped, "")
-	case m.Status == mapping.Ambiguous:
+	case m.Status == accountmap.Ambiguous:
 		return r.unchecked(ctx, m, report.Ambiguous, "")
 	}
 
@@ -61,7 +61,7 @@ func (r *checkRun) checkAccount(ctx context.Context, sessionID string, m mapping
 
 // unchecked records that m could not be reconciled for code.
 func (r *checkRun) unchecked(
-	ctx context.Context, m mapping.Mapping, code report.UncheckedCode, detail string,
+	ctx context.Context, m accountmap.Mapping, code report.UncheckedCode, detail string,
 ) report.AccountResult {
 	r.deps.Log.InfoContext(ctx, "account unchecked",
 		"bank", m.Bank.BankKey,
@@ -75,7 +75,7 @@ func (r *checkRun) unchecked(
 // uncheckedErr records that a bank or Firefly III call for m failed with err. The error goes to the
 // file log only; the stderr summary of a failed run is not this function's job.
 func (r *checkRun) uncheckedErr(
-	ctx context.Context, m mapping.Mapping, code report.UncheckedCode, detail string, err error,
+	ctx context.Context, m accountmap.Mapping, code report.UncheckedCode, detail string, err error,
 ) report.AccountResult {
 	r.deps.Log.InfoContext(ctx, "account unchecked",
 		"bank", m.Bank.BankKey,

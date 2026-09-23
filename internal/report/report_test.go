@@ -5,14 +5,20 @@
 package report_test
 
 import (
+	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/reconcile"
 	"github.com/Toshik1978/firefly-jar/internal/report"
 )
+
+// TestReport is the single entry point for package report's test suites.
+func TestReport(t *testing.T) {
+	suite.Run(t, new(ReportSuite))
+}
 
 // ReportSuite covers RunReport.ExitCode, RunReport.DigestNeeded, RunReport.Summary and
 // UncheckedCode.Text (T041).
@@ -30,9 +36,9 @@ type outcomeCase struct {
 
 // account returns an AccountResult for a checked account: reconciliation ran and found result,
 // and Unchecked is nil.
-func account(status mapping.Status, result reconcile.Result) report.AccountResult {
+func account(status accountmap.Status, result reconcile.Result) report.AccountResult {
 	return report.AccountResult{
-		Mapping: mapping.Mapping{Status: status},
+		Mapping: accountmap.Mapping{Status: status},
 		Result:  result,
 	}
 }
@@ -41,7 +47,7 @@ func account(status mapping.Status, result reconcile.Result) report.AccountResul
 // because it could not be checked for the given reason.
 func uncheckedAccount(code report.UncheckedCode) report.AccountResult {
 	return report.AccountResult{
-		Mapping:   mapping.Mapping{Status: mapping.Auto},
+		Mapping:   accountmap.Mapping{Status: accountmap.Auto},
 		Unchecked: &report.Unchecked{Code: code, Detail: "detail"},
 	}
 }
@@ -52,7 +58,7 @@ func uncheckedAccount(code report.UncheckedCode) report.AccountResult {
 // than happening to see zero.
 func excludedAccount(result reconcile.Result) report.AccountResult {
 	return report.AccountResult{
-		Mapping: mapping.Mapping{Status: mapping.Excluded},
+		Mapping: accountmap.Mapping{Status: accountmap.Excluded},
 		Result:  result,
 	}
 }
@@ -85,14 +91,14 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 	return []outcomeCase{
 		{
 			name:       "clean run: nothing to report",
-			report:     report.RunReport{Accounts: []report.AccountResult{account(mapping.Auto, matchedResult(1))}},
+			report:     report.RunReport{Accounts: []report.AccountResult{account(accountmap.Auto, matchedResult(1))}},
 			wantExit:   0,
 			wantDigest: false,
 		},
 		{
 			name: "consent warning only: warns but nothing failed",
 			report: report.RunReport{
-				Accounts: []report.AccountResult{account(mapping.Auto, matchedResult(1))},
+				Accounts: []report.AccountResult{account(accountmap.Auto, matchedResult(1))},
 				ConsentWarnings: []report.ConsentWarning{
 					{BankKey: "sample-bank", ValidUntil: time.Now(), DaysLeft: 5},
 				},
@@ -103,7 +109,7 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 		{
 			name: "missing with everything checked",
 			report: report.RunReport{
-				Accounts: []report.AccountResult{account(mapping.Auto, missingResult(1))},
+				Accounts: []report.AccountResult{account(accountmap.Auto, missingResult(1))},
 			},
 			wantExit:   1,
 			wantDigest: true,
@@ -112,7 +118,7 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 			name: "unchecked account forces exit 2 even with nothing missing",
 			report: report.RunReport{
 				Accounts: []report.AccountResult{
-					account(mapping.Auto, matchedResult(1)),
+					account(accountmap.Auto, matchedResult(1)),
 					uncheckedAccount(report.RateLimited),
 				},
 			},
@@ -130,7 +136,7 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 		{
 			name: "delivery attempted and every recipient failed forces exit 2",
 			report: report.RunReport{
-				Accounts: []report.AccountResult{account(mapping.Auto, missingResult(1))},
+				Accounts: []report.AccountResult{account(accountmap.Auto, missingResult(1))},
 				Delivery: report.Delivery{
 					Attempted: 2,
 					Succeeded: 0,
@@ -162,7 +168,7 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 			name: "unchecked account takes precedence over a missing account",
 			report: report.RunReport{
 				Accounts: []report.AccountResult{
-					account(mapping.Auto, missingResult(1)),
+					account(accountmap.Auto, missingResult(1)),
 					uncheckedAccount(report.BankError),
 				},
 			},
@@ -172,7 +178,7 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 		{
 			name: "run-level problem takes precedence over a missing account",
 			report: report.RunReport{
-				Accounts: []report.AccountResult{account(mapping.Auto, missingResult(1))},
+				Accounts: []report.AccountResult{account(accountmap.Auto, missingResult(1))},
 				Problems: []report.Problem{{Scope: "bank", Reason: "not authorized"}},
 			},
 			wantExit:   2,
@@ -181,7 +187,7 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 		{
 			name: "partial delivery failure with at least one success stays at exit 1",
 			report: report.RunReport{
-				Accounts: []report.AccountResult{account(mapping.Auto, missingResult(1))},
+				Accounts: []report.AccountResult{account(accountmap.Auto, missingResult(1))},
 				Delivery: report.Delivery{
 					Attempted: 2,
 					Succeeded: 1,
@@ -209,7 +215,7 @@ func (s *ReportSuite) outcomeCases() []outcomeCase {
 // (data-model.md "Run outcome").
 func (s *ReportSuite) TestSummary() {
 	uncheckedWithLeftoverResult := report.AccountResult{
-		Mapping: mapping.Mapping{Status: mapping.Auto},
+		Mapping: accountmap.Mapping{Status: accountmap.Auto},
 		Result: reconcile.Result{
 			Matched:      make([]reconcile.Pair, 9),
 			Missing:      make([]reconcile.Missing, 9),
@@ -221,7 +227,7 @@ func (s *ReportSuite) TestSummary() {
 
 	rpt := report.RunReport{
 		Accounts: []report.AccountResult{
-			account(mapping.Auto, reconcile.Result{
+			account(accountmap.Auto, reconcile.Result{
 				Matched:      make([]reconcile.Pair, 2),
 				Missing:      make([]reconcile.Missing, 1),
 				Deduplicated: 1,
@@ -234,7 +240,7 @@ func (s *ReportSuite) TestSummary() {
 				Void:         5,
 			}),
 			uncheckedWithLeftoverResult,
-			account(mapping.Auto, matchedResult(1)),
+			account(accountmap.Auto, matchedResult(1)),
 		},
 	}
 

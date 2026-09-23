@@ -1,4 +1,4 @@
-package httpx_test
+package httpclient_test
 
 import (
 	"context"
@@ -8,12 +8,13 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/Toshik1978/firefly-jar/internal/httpx"
+	"github.com/Toshik1978/firefly-jar/internal/httpclient"
 )
 
-// ClientSuite covers httpx.NewClient (T019, R8, R12, FR-031): no automatic redirect handling, so a
+// ClientSuite covers httpclient.NewClient (T019, R8, R12, FR-031): no automatic redirect handling, so a
 // bearer token configured for one host is never replayed to another after a 3xx, and timeouts that
 // bound each attempt rather than the whole exchange, so a Retry-After wait or a retry after a hung
 // attempt is never cut short by a clock that started before the first attempt. The synctest cases
@@ -23,13 +24,13 @@ type ClientSuite struct {
 }
 
 func (s *ClientSuite) TestNewClientHasNoWholeExchangeTimeout() {
-	client := httpx.NewClient(http.DefaultTransport)
+	client := httpclient.NewClient(http.DefaultTransport)
 
 	s.Zero(client.Timeout, "a client-wide timeout would span every retry and Retry-After wait (R12)")
 }
 
 func (s *ClientSuite) TestNewClientNeverFollowsARedirect() {
-	client := httpx.NewClient(http.DefaultTransport)
+	client := httpclient.NewClient(http.DefaultTransport)
 	s.Require().NotNil(client.CheckRedirect, "a nil CheckRedirect would follow redirects automatically")
 
 	err := client.CheckRedirect(&http.Request{}, nil)
@@ -42,26 +43,25 @@ func (s *ClientSuite) TestNewClientNeverFollowsARedirect() {
 // cap, so R12 says wait, and a 30 s timeout spanning the whole exchange would cancel the wait.
 func (s *ClientSuite) TestRetryAfterLongerThanOneAttemptTimeoutStillSucceeds() {
 	var (
-		attempts   []fakeAttempt
+		attempts   []time.Time
 		start      time.Time
 		statusCode int
 		respErr    error
 	)
 
 	synctest.Test(s.T(), func(t *testing.T) {
-		header := make(http.Header)
-		header.Set("Retry-After", "45")
-		fake := &fakeTransport{steps: []scriptedStep{
-			{status: http.StatusTooManyRequests, header: header, body: "rate limited"},
-			{status: http.StatusOK, body: "ok"},
-		}}
-		client := httpx.NewClient(&httpx.RetryTransport{Base: fake, Jitter: fixedJitter(0.5)})
+		transport, snapshot := newScriptedTransport(
+			http.MethodGet,
+			rateLimited("45"),
+			httpmock.NewStringResponder(http.StatusOK, "ok"),
+		)
+		client := httpclient.NewClient(&httpclient.RetryTransport{Base: transport, Jitter: fixedJitter(0.5)})
 
 		start = time.Now()
 
 		resp, err := client.Do(newGetRequest(t.Context(), http.MethodGet))
 		respErr = err
-		attempts = fake.attemptSnapshot()
+		attempts = snapshot()
 
 		if resp != nil {
 			statusCode = resp.StatusCode
@@ -72,7 +72,7 @@ func (s *ClientSuite) TestRetryAfterLongerThanOneAttemptTimeoutStillSucceeds() {
 	s.Require().NoError(respErr)
 	s.Equal(http.StatusOK, statusCode)
 	s.Require().Len(attempts, 2)
-	s.Equal(start.Add(45*time.Second), attempts[1].at, "Retry-After: 45 must be waited out in full")
+	s.Equal(start.Add(45*time.Second), attempts[1], "Retry-After: 45 must be waited out in full")
 }
 
 // TestHungAttemptIsBoundedAndThenRetried asserts one attempt that never answers is cut off after
@@ -80,24 +80,25 @@ func (s *ClientSuite) TestRetryAfterLongerThanOneAttemptTimeoutStillSucceeds() {
 // run or failing the whole exchange.
 func (s *ClientSuite) TestHungAttemptIsBoundedAndThenRetried() {
 	var (
-		attempts   []fakeAttempt
+		attempts   []time.Time
 		start      time.Time
 		statusCode int
 		respErr    error
 	)
 
 	synctest.Test(s.T(), func(t *testing.T) {
-		fake := &fakeTransport{steps: []scriptedStep{
-			{hang: true},
-			{status: http.StatusOK, body: "ok"},
-		}}
-		client := httpx.NewClient(&httpx.RetryTransport{Base: fake, Jitter: fixedJitter(0.5)})
+		transport, snapshot := newScriptedTransport(
+			http.MethodGet,
+			hangs(),
+			httpmock.NewStringResponder(http.StatusOK, "ok"),
+		)
+		client := httpclient.NewClient(&httpclient.RetryTransport{Base: transport, Jitter: fixedJitter(0.5)})
 
 		start = time.Now()
 
 		resp, err := client.Do(newGetRequest(t.Context(), http.MethodGet))
 		respErr = err
-		attempts = fake.attemptSnapshot()
+		attempts = snapshot()
 
 		if resp != nil {
 			statusCode = resp.StatusCode
@@ -108,7 +109,7 @@ func (s *ClientSuite) TestHungAttemptIsBoundedAndThenRetried() {
 	s.Require().NoError(respErr)
 	s.Equal(http.StatusOK, statusCode)
 	s.Require().Len(attempts, 2)
-	s.Equal(start.Add(31*time.Second), attempts[1].at, "a 30 s attempt timeout, then the 1 s first backoff")
+	s.Equal(start.Add(31*time.Second), attempts[1], "a 30 s attempt timeout, then the 1 s first backoff")
 }
 
 // TestHungNonRetriedRequestIsBounded asserts a request the retry layer never replays (a POST) is
@@ -116,20 +117,20 @@ func (s *ClientSuite) TestHungAttemptIsBoundedAndThenRetried() {
 // 10-minute run cap.
 func (s *ClientSuite) TestHungNonRetriedRequestIsBounded() {
 	var (
-		attempts []fakeAttempt
+		attempts []time.Time
 		elapsed  time.Duration
 		respErr  error
 	)
 
 	synctest.Test(s.T(), func(t *testing.T) {
-		fake := &fakeTransport{steps: []scriptedStep{{hang: true}}}
-		client := httpx.NewClient(&httpx.RetryTransport{Base: fake})
+		transport, snapshot := newScriptedTransport(http.MethodPost, hangs())
+		client := httpclient.NewClient(&httpclient.RetryTransport{Base: transport})
 
 		start := time.Now()
 
 		resp, err := client.Do(newGetRequest(t.Context(), http.MethodPost))
 		respErr = err
-		attempts = fake.attemptSnapshot()
+		attempts = snapshot()
 		elapsed = time.Since(start)
 
 		if resp != nil {
@@ -146,20 +147,24 @@ func (s *ClientSuite) TestHungNonRetriedRequestIsBounded() {
 // one Telegram uses because it handles its own 429s, cuts a hung request off at 30 s.
 func (s *ClientSuite) TestTimeoutTransportBoundsAHungRequestWithoutRetrying() {
 	var (
-		attempts []fakeAttempt
+		attempts []time.Time
 		elapsed  time.Duration
 		respErr  error
 	)
 
 	synctest.Test(s.T(), func(t *testing.T) {
-		fake := &fakeTransport{steps: []scriptedStep{{hang: true}, {status: http.StatusOK}}}
-		client := httpx.NewClient(&httpx.TimeoutTransport{Base: fake})
+		transport, snapshot := newScriptedTransport(
+			http.MethodGet,
+			hangs(),
+			httpmock.NewStringResponder(http.StatusOK, ""),
+		)
+		client := httpclient.NewClient(&httpclient.TimeoutTransport{Base: transport})
 
 		start := time.Now()
 
 		resp, err := client.Do(newGetRequest(t.Context(), http.MethodGet))
 		respErr = err
-		attempts = fake.attemptSnapshot()
+		attempts = snapshot()
 		elapsed = time.Since(start)
 
 		if resp != nil {
@@ -182,8 +187,8 @@ func (s *ClientSuite) TestAttemptTimeoutCoversTheBodyRead() {
 	)
 
 	synctest.Test(s.T(), func(t *testing.T) {
-		fake := &fakeTransport{steps: []scriptedStep{{status: http.StatusOK, stallBody: true}}}
-		client := httpx.NewClient(&httpx.RetryTransport{Base: fake})
+		transport, _ := newScriptedTransport(http.MethodGet, stallsBody(http.StatusOK))
+		client := httpclient.NewClient(&httpclient.RetryTransport{Base: transport})
 
 		start := time.Now()
 

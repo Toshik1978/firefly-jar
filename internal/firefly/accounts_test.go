@@ -3,11 +3,11 @@ package firefly
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -25,10 +25,7 @@ type AccountsSuite struct {
 	suite.Suite
 }
 
-// fixture reads one anonymized testdata file, failing the test immediately if it is missing. It is
-// always called from the suite's own goroutine, never from inside an httptest.Server handler, so
-// every response body a test needs is read up front and only plain byte slices are captured by
-// handler closures.
+// fixture reads one anonymized testdata file, failing the test immediately if it is missing.
 func (s *AccountsSuite) fixture(name string) []byte {
 	s.T().Helper()
 
@@ -40,37 +37,30 @@ func (s *AccountsSuite) fixture(name string) []byte {
 	return data
 }
 
-// writeJSON writes body as a status JSON response, the shape every Firefly III response in this
-// suite takes (a JSON:API page or an error body).
-func writeJSON(w http.ResponseWriter, status int, body []byte) {
-	w.Header().Set("Content-Type", "application/vnd.api+json")
-	w.WriteHeader(status)
-	_, _ = w.Write(body)
-}
-
-// pagedAccountsServer starts an httptest.Server that serves pages in order from bodies on the first
-// len(bodies) requests, recording each request's query so a test can assert the exact query per
-// call. Any request past len(bodies) -- which would only happen if ListAccounts fails to stop at
-// total_pages -- gets accountsFixtureNoMeta, a safe single-page terminal that can never cause a
-// hang, instead of repeating the last real page forever.
-func (s *AccountsSuite) pagedAccountsServer(bodies ...[]byte) (*httptest.Server, *[]url.Values) {
+// pagedAccountsTransport returns an httpmock.MockTransport that answers GET /accounts by serving
+// bodies in order on successive requests, recording each request's query so a test can assert the
+// exact query per call. Any request past len(bodies) -- which would only happen if ListAccounts
+// fails to stop at total_pages -- gets accountsFixtureNoMeta, a safe single-page terminal that can
+// never cause a hang, instead of repeating the last real page forever.
+func (s *AccountsSuite) pagedAccountsTransport(bodies ...[]byte) (*httpmock.MockTransport, *[]url.Values) {
 	queries := make([]url.Values, 0, len(bodies))
 	terminal := s.fixture("accounts_nometa.json")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		queries = append(queries, r.URL.Query())
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts",
+		func(req *http.Request) (*http.Response, error) {
+			queries = append(queries, req.URL.Query())
 
-		idx := len(queries) - 1
-		if idx < len(bodies) {
-			writeJSON(w, http.StatusOK, bodies[idx])
+			idx := len(queries) - 1
+			if idx < len(bodies) {
+				return httpmock.NewBytesResponse(http.StatusOK, bodies[idx]), nil
+			}
 
-			return
-		}
+			return httpmock.NewBytesResponse(http.StatusOK, terminal), nil
+		},
+	)
 
-		writeJSON(w, http.StatusOK, terminal)
-	}))
-
-	return server, &queries
+	return transport, &queries
 }
 
 // TestListAccountsRequestsAssetTypeLimit500AndOwnPageCounter asserts the request shape bullet of the
@@ -82,10 +72,9 @@ func (s *AccountsSuite) TestListAccountsRequestsAssetTypeLimit500AndOwnPageCount
 	p1 := s.fixture("accounts_p1.json")
 	p2 := s.fixture("accounts_p2.json")
 
-	server, queries := s.pagedAccountsServer(p1, p2)
-	defer server.Close()
+	transport, queries := s.pagedAccountsTransport(p1, p2)
 
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	got, err := client.ListAccounts(context.Background())
 	s.Require().NoError(err)
@@ -107,23 +96,23 @@ func (s *AccountsSuite) TestListAccountsRequestsAssetTypeLimit500AndOwnPageCount
 func (s *AccountsSuite) TestListAccountsMissingMetaFetchesExactlyOnePage() {
 	body := s.fixture("accounts_nometa.json")
 
-	var hits int
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts",
+		httpmock.NewBytesResponder(http.StatusOK, body),
+	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits++
-
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
-
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	got, err := client.ListAccounts(context.Background())
 	s.Require().NoError(err)
 	s.Require().Len(got, 1)
 	s.Equal("1", got[0].ID)
 
-	s.Equal(1, hits, "a missing meta.pagination must mean a single page, never a second request")
+	s.Equal(
+		1,
+		transport.GetTotalCallCount(),
+		"a missing meta.pagination must mean a single page, never a second request",
+	)
 }
 
 // TestListAccountsMapsEveryFieldExactly asserts the mapping bullet of the T034 design over every
@@ -135,10 +124,9 @@ func (s *AccountsSuite) TestListAccountsMapsEveryFieldExactly() {
 	p1 := s.fixture("accounts_p1.json")
 	p2 := s.fixture("accounts_p2.json")
 
-	server, _ := s.pagedAccountsServer(p1, p2)
-	defer server.Close()
+	transport, _ := s.pagedAccountsTransport(p1, p2)
 
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	got, err := client.ListAccounts(context.Background())
 	s.Require().NoError(err)
@@ -188,12 +176,12 @@ func (s *AccountsSuite) TestListAccountsMapsEveryFieldExactly() {
 func (s *AccountsSuite) TestListAccountsUnauthorizedWrapsErrUnauthorized() {
 	body := s.fixture("err_401.json")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusUnauthorized, body)
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts",
+		httpmock.NewBytesResponder(http.StatusUnauthorized, body),
+	)
 
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	got, err := client.ListAccounts(context.Background())
 	s.Require().Error(err)
@@ -207,12 +195,12 @@ func (s *AccountsSuite) TestListAccountsUnauthorizedWrapsErrUnauthorized() {
 // (a token Firefly III, or a proxy in front of it, refuses), so the run reports it as unauthorized
 // rather than as an unreachable server.
 func (s *AccountsSuite) TestListAccountsForbiddenWrapsErrUnauthorized() {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusForbidden, []byte(`{"message":"Forbidden."}`))
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts",
+		httpmock.NewStringResponder(http.StatusForbidden, `{"message":"Forbidden."}`),
+	)
 
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	_, err := client.ListAccounts(context.Background())
 

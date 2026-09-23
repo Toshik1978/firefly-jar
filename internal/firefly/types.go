@@ -6,7 +6,7 @@ package firefly
 
 import (
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 )
 
 // Account represents a Firefly III asset account.
@@ -40,7 +40,7 @@ type Entry struct {
 	Date civil.Date
 	// Amount is the signed sum of the group's comparable splits, in the account's currency:
 	// negative where the account is the source, positive where it is the destination.
-	Amount domain.Amount
+	Amount money.Amount
 	// Description is kept in memory for tests and debugging only. It is never logged, per
 	// constitution §V.
 	Description string

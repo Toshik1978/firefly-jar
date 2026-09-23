@@ -43,7 +43,7 @@ same checks.
 
 | Task | Does |
 |---|---|
-| `task setup` | `mise install` (pinned Go, golangci-lint, git-cliff), `go mod download` |
+| `task setup` | `mise install` (pinned Go and golangci-lint), `go mod download` |
 | `task format` / `task format:check` | `golangci-lint fmt` (gofumpt, gci, golines) / the same with `--diff` |
 | `task lint` | `golangci-lint run` |
 | `task test` | `go test -race ./...`. Never calls a live service. |
@@ -61,15 +61,27 @@ are never part of `task check`.
 
 Standard library first. Approved direct dependencies:
 
+- `github.com/avast/retry-go/v5`: the attempt loop and the wait between attempts inside
+  `httpclient.RetryTransport`. It is a generic retry loop, not an HTTP client. Every HTTP rule stays in our wrapper
+  (research R12): what is retried, the delay and jitter, the Retry-After cap, draining, and handing back the
+  last response.
 - `github.com/goccy/go-yaml`: strict (`DisallowUnknownField`) config decoding. The stdlib has no YAML.
-- `github.com/shopspring/decimal` v1.4.0: exact decimal arithmetic backing `domain.Amount`, so money is
+- `github.com/shopspring/decimal` v1.4.0: exact decimal arithmetic backing `money.Amount`, so money is
   never a float and never a hand-rolled minor-units/scale representation.
 - `github.com/spf13/cobra`: CLI parsing for `check`/`auth`/`accounts` and their flags, in place of
   `flag.NewFlagSet`.
 - `github.com/stretchr/testify`: test suites only. It is never imported by non-test code.
+- `github.com/jarcoal/httpmock`: test-only, per-client `http.RoundTripper` mocking for HTTP adapter tests
+  (research R17, owner-approved for every test where it fits). It is never imported by non-test code. Always
+  per-client (`httpmock.NewMockTransport()` injected into the client under test), never
+  `httpmock.Activate`/the global `http.DefaultTransport`, so tests stay parallel-safe. Its own `go.mod`
+  pulls in `github.com/maxatome/go-testdeep` and `github.com/davecgh/go-spew` for httpmock's own tests;
+  those land in `go.sum` for module-graph verification but nothing from them is compiled into this
+  module's build or test binary.
 
 `internal/civil` is a trimmed copy of `cloud.google.com/go/civil`'s `Date` type (Apache-2.0 header kept),
-used for civil dates end to end. It is not a dependency on `cloud.google.com/go` itself.
+used for civil dates end to end. It is not a dependency on `cloud.google.com/go` itself. `date.go` is that
+copy; `range.go` (`civil.Range`, the check window) is this repository's own code.
 
 Considered and not adopted: `fatih/color`, `dustin/go-humanize`. The digest is plain text for
 Telegram/email, and the terminal output (`auth` prompt, `accounts` table) is too small to benefit; revisit
@@ -77,10 +89,11 @@ if colored terminal output is wanted.
 
 Any other direct dependency needs explicit approval. State the package, what it solves, and why the standard
 library is not enough, and do not add it until approved. There is no JWT library (RS256 is `crypto/rsa`), no
-HTTP client library, no retry library, and no OpenAPI code generation. API models are small hand-written
-structs covering only the fields in use. No release older than 2025-01-01, and no pseudo-versions, except an
-owner-named library the owner explicitly approves as an exception (`github.com/shopspring/decimal` v1.4.0
-is the one approved so far, notwithstanding its release date).
+HTTP client library (`hashicorp/go-retryablehttp` was rejected, research R12), and no OpenAPI code
+generation. API models are small hand-written structs covering only the fields in use. No release older than
+2025-01-01, and no pseudo-versions, except an owner-named library the owner explicitly approves as an
+exception (`github.com/shopspring/decimal` v1.4.0 is the one approved so far, notwithstanding its release
+date).
 
 ## Code style
 
@@ -104,12 +117,12 @@ before writing code:
 
 Domain rules:
 
-- **Money is never a float.** Use `domain.Amount` (`Value decimal.Decimal` plus `Currency string`, backed by
+- **Money is never a float.** Use `money.Amount` (`Value decimal.Decimal` plus `Currency string`, backed by
   `github.com/shopspring/decimal`) end to end. Parse decimal strings directly.
-- **Dates are civil dates (`internal/civil.Date`).** Compute "today" and the window once per run in the
-  configured time zone. A Firefly split date is the `YYYY-MM-DD` prefix exactly as Firefly renders it, never
-  re-converted (research R8). A bank date is the provider's calendar date. The ± tolerance absorbs time-zone
-  differences.
+- **Dates are civil dates (`internal/civil.Date`).** Compute "today" and the window (`civil.Range`) once per
+  run in the configured time zone. A Firefly split date is the `YYYY-MM-DD` prefix exactly as Firefly renders
+  it, never re-converted (research R8). A bank date is the provider's calendar date. The ± tolerance absorbs
+  time-zone differences.
 - **Transaction descriptions and counterparty names are never logged**, at any level. They appear only in the
   digest. Log group ids, masked accounts, dates and amounts instead.
 - **Secrets and identifiers.** Secrets come only from env vars or `*_file` paths and never appear in logs,
@@ -122,10 +135,13 @@ Write comments that explain *why*, not *what*.
 
 All Go tests use testify suites. Three rules, non-negotiable:
 
-1. **One entry point per package.** Exactly one top-level `func Test<Package>(t *testing.T)` per package.
-   Where a build tag adds suites (package `app`'s `live` smoke test), the entry point is declared twice, in
-   `app_test.go` (`//go:build !live`) and `app_live_test.go` (`//go:build live`), with the same `suite.Run`
-   lines plus the tagged suites, so each build still has exactly one; keep the two lists in sync.
+1. **One entry point per package.** Exactly one top-level `func Test<Package>(t *testing.T)` per package. A
+   package with only one test file declares it there, alongside the suite it defines. A package with several
+   test files declares it in `<package>_test.go`, containing only the `suite.Run` calls; the other files are
+   named for what they cover, never for the package again. Where a build tag adds suites (package `app`'s
+   `live` smoke test), the entry point is declared twice, in `app_test.go` (`//go:build !live`) and
+   `app_live_test.go` (`//go:build live`), with the same `suite.Run` lines plus the tagged suites, so each
+   build still has exactly one; keep the two lists in sync.
 2. **The entry point only wires suites.** It contains only `suite.Run(t, new(...))` calls, one per
    `suite.Suite`.
 3. **All real tests are suite methods.** Use suite assertions (`s.Equal`, `s.Require().NoError`, …), never a
@@ -135,11 +151,17 @@ Table-driven subtests use `s.Run(tc.name, func() { … })`. Also:
 
 - **TDD is mandatory** (constitution Principle III): watch the test fail for the right reason before writing
   code.
-- HTTP adapters are tested against `httptest.Server` with **anonymized** JSON fixtures in `testdata/`. No real
-  names, IBANs, amounts or tokens, ever.
+- HTTP adapters are tested with per-client `httpmock` transports (`httpmock.NewMockTransport()`) and
+  **anonymized** JSON fixtures in `testdata/`. No real names, IBANs, amounts or tokens, ever.
+  `httptest.Server` is kept only in `internal/app`, where a real listener is the point: every suite there that
+  drives `app.RunEnv` or `BuildDeps` needs one, because those build their own real `http.Client`s and have no
+  test-visible transport seam by design, and the package's pipeline suites (check, consent, isolation) use
+  the same kind of Firefly III fake server so one fake serves both. A test that keeps it says why.
 - Retry and backoff timing is tested with `testing/synctest`. Never use real sleeps. Inside a synctest bubble, never
   use `httptest.Server` or any socket: network-blocked goroutines keep the fake clock from advancing and the test
-  hangs. Use an in-process fake `http.RoundTripper` or `net.Pipe` instead.
+  hangs. Use a per-client `httpmock` transport instead. When the request's context can end, httpmock runs the
+  responder on a goroutine of its own, so anything the responder records is complete only after
+  `synctest.Wait()`.
 - Golden files are regenerated only with `UPDATE_GOLDEN=1`, never a package-level test flag.
 - The digest is golden-file tested. Goldens are plain text and reviewed like code, never regenerated
   blindly.

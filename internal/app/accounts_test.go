@@ -23,7 +23,7 @@ import (
 )
 
 // Anonymized identifiers of the three configured banks and their six accounts, covering every
-// mapping.Status the accounts command can report (contracts/cli.md, spec.md US3). bank1 holds an
+// accountmap.Status the accounts command can report (contracts/cli.md, spec.md US3). bank1 holds an
 // auto-mapped IBAN account and a hash-mapped override (a card with no IBAN, the credit-card case
 // contracts/cli.md calls out); bank2 holds one IBAN shared by three currencies, mirroring spec.md
 // US3 scenario 2, resolving to auto (EUR), ambiguous (USD, two Firefly candidates) and unmapped
@@ -225,7 +225,7 @@ type AccountsCommandSuite struct {
 
 // TestTableColumnsAndStatuses covers the accounts table's shape (contracts/cli.md): the exact
 // header, one row per bank account in bank-then-account order, the masked ACCOUNT (IBAN or hash),
-// every mapping.Status this build can produce, and the FIREFLY column's three renderings (mapped,
+// every accountmap.Status this build can produce, and the FIREFLY column's three renderings (mapped,
 // ambiguous candidates, and "—" for anything else). The fixture's ambiguous and unmapped accounts
 // make this run exit 2.
 func (s *AccountsCommandSuite) TestTableColumnsAndStatuses() {

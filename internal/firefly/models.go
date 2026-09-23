@@ -58,7 +58,7 @@ type groupAttributes struct {
 
 // splitJSON is one split (transaction journal). Type is a plain string so a type this client does
 // not know, such as "liability credit", decodes instead of failing the whole page; it is filtered
-// out afterwards. Amounts stay strings until they are parsed exactly into a domain.Amount.
+// out afterwards. Amounts stay strings until they are parsed exactly into a money.Amount.
 type splitJSON struct {
 	JournalID           string `json:"transaction_journal_id"`
 	Type                string `json:"type"`

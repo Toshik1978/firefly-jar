@@ -1,11 +1,11 @@
-package mapping_test
+package accountmap_test
 
 import (
 	"github.com/stretchr/testify/suite"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 )
 
 // AutoSuite covers automatic IBAN+currency resolution in Resolve (T037, FR-014, FR-016,
@@ -64,8 +64,8 @@ func candidateIDs(candidates []firefly.Account) []string {
 // ids for a single Mapping, since the production Mapping struct also carries a Bank value and a
 // Detail string that this suite does not constrain.
 func (s *AutoSuite) assertMapping(
-	got mapping.Mapping,
-	wantStatus mapping.Status,
+	got accountmap.Mapping,
+	wantStatus accountmap.Status,
 	wantFireflyID string,
 	wantCandidateIDs []string,
 ) {
@@ -87,7 +87,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 		name          string
 		bankAccount   bank.Account
 		fireflyAccts  []firefly.Account
-		wantStatus    mapping.Status
+		wantStatus    accountmap.Status
 		wantFireflyID string
 		wantCandidate []string
 	}{
@@ -95,7 +95,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 			name:          "exactly one active match by IBAN and currency is Auto",
 			bankAccount:   newBankAccount("h1", "LT000000000000000001", "EUR"),
 			fireflyAccts:  []firefly.Account{newFireflyAccount("10", "LT000000000000000001", "EUR", true)},
-			wantStatus:    mapping.Auto,
+			wantStatus:    accountmap.Auto,
 			wantFireflyID: "10",
 			wantCandidate: nil,
 		},
@@ -107,7 +107,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 				newFireflyAccount("20", "LT000000000000000002", "EUR", true),
 				newFireflyAccount("10", "LT000000000000000002", "EUR", true),
 			},
-			wantStatus:    mapping.Ambiguous,
+			wantStatus:    accountmap.Ambiguous,
 			wantFireflyID: "",
 			wantCandidate: []string{"10", "20"},
 		},
@@ -115,7 +115,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 			name:          "no match is Unmapped",
 			bankAccount:   newBankAccount("h3", "LT000000000000000003", "EUR"),
 			fireflyAccts:  []firefly.Account{newFireflyAccount("30", "LT000000000000000099", "EUR", true)},
-			wantStatus:    mapping.Unmapped,
+			wantStatus:    accountmap.Unmapped,
 			wantFireflyID: "",
 			wantCandidate: nil,
 		},
@@ -126,7 +126,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 				newFireflyAccount("40", "LT000000000000000004", "EUR", false),
 				newFireflyAccount("41", "LT000000000000000004", "EUR", true),
 			},
-			wantStatus:    mapping.Auto,
+			wantStatus:    accountmap.Auto,
 			wantFireflyID: "41",
 			wantCandidate: nil,
 		},
@@ -134,7 +134,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 			name:          "only an inactive match leaves the account Unmapped",
 			bankAccount:   newBankAccount("h5", "LT000000000000000005", "EUR"),
 			fireflyAccts:  []firefly.Account{newFireflyAccount("50", "LT000000000000000005", "EUR", false)},
-			wantStatus:    mapping.Unmapped,
+			wantStatus:    accountmap.Unmapped,
 			wantFireflyID: "",
 			wantCandidate: nil,
 		},
@@ -147,7 +147,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 				newFireflyAccount("10", "LT000000000000000010", "EUR", true),
 				newFireflyAccount("9", "LT000000000000000010", "EUR", true),
 			},
-			wantStatus:    mapping.Ambiguous,
+			wantStatus:    accountmap.Ambiguous,
 			wantFireflyID: "",
 			wantCandidate: []string{"9", "10"},
 		},
@@ -155,7 +155,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 			name:          "a bank account without an IBAN is Unmapped even with a currency match",
 			bankAccount:   newBankAccount("h6", "", "EUR"),
 			fireflyAccts:  []firefly.Account{newFireflyAccount("60", "LT000000000000000006", "EUR", true)},
-			wantStatus:    mapping.Unmapped,
+			wantStatus:    accountmap.Unmapped,
 			wantFireflyID: "",
 			wantCandidate: nil,
 		},
@@ -163,7 +163,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 			name:          "spaces and letter case in the IBAN are ignored on both sides",
 			bankAccount:   newBankAccount("h7", "lt00 0000 0000 0000 0007", "EUR"),
 			fireflyAccts:  []firefly.Account{newFireflyAccount("70", "LT000000000000000007", "EUR", true)},
-			wantStatus:    mapping.Auto,
+			wantStatus:    accountmap.Auto,
 			wantFireflyID: "70",
 			wantCandidate: nil,
 		},
@@ -173,7 +173,7 @@ func (s *AutoSuite) TestSingleBankAccount() {
 		tc := &cases[i]
 
 		s.Run(tc.name, func() {
-			got := mapping.Resolve([]bank.Account{tc.bankAccount}, tc.fireflyAccts, nil)
+			got := accountmap.Resolve([]bank.Account{tc.bankAccount}, tc.fireflyAccts, nil)
 
 			s.Require().Len(got, 1, "one Mapping per bank account")
 			s.Equal(tc.bankAccount, got[0].Bank, "bank account is carried through unchanged")
@@ -196,7 +196,7 @@ func (s *AutoSuite) TestMultiCurrencySameIBAN() {
 
 	// Input order deliberately does not match currency order, so a correct Resolve cannot get this
 	// right by accident of ordering.
-	got := mapping.Resolve(
+	got := accountmap.Resolve(
 		[]bank.Account{eurBank, usdBank},
 		[]firefly.Account{usdFirefly, eurFirefly},
 		nil,
@@ -204,9 +204,9 @@ func (s *AutoSuite) TestMultiCurrencySameIBAN() {
 
 	s.Require().Len(got, 2, "one Mapping per bank account, in input order")
 	s.Equal(eurBank, got[0].Bank)
-	s.assertMapping(got[0], mapping.Auto, "80", nil)
+	s.assertMapping(got[0], accountmap.Auto, "80", nil)
 	s.Equal(usdBank, got[1].Bank)
-	s.assertMapping(got[1], mapping.Auto, "81", nil)
+	s.assertMapping(got[1], accountmap.Auto, "81", nil)
 }
 
 // StatusSuite covers Status.String() for every declared value and for a value the type does not
@@ -221,15 +221,15 @@ type StatusSuite struct {
 func (s *StatusSuite) TestString() {
 	cases := []struct {
 		name   string
-		status mapping.Status
+		status accountmap.Status
 		want   string
 	}{
-		{"auto", mapping.Auto, "auto"},
-		{"override", mapping.Override, "override"},
-		{"excluded", mapping.Excluded, "excluded"},
-		{"ambiguous", mapping.Ambiguous, "ambiguous"},
-		{"unmapped", mapping.Unmapped, "unmapped"},
-		{"unknown value", mapping.Status(99), "unknown"},
+		{"auto", accountmap.Auto, "auto"},
+		{"override", accountmap.Override, "override"},
+		{"excluded", accountmap.Excluded, "excluded"},
+		{"ambiguous", accountmap.Ambiguous, "ambiguous"},
+		{"unmapped", accountmap.Unmapped, "unmapped"},
+		{"unknown value", accountmap.Status(99), "unknown"},
 	}
 
 	for _, tc := range cases {

@@ -1,10 +1,10 @@
-// Package httpx builds the outbound HTTP stack shared by every adapter: a retrying
+// Package httpclient builds the outbound HTTP stack shared by every adapter: a retrying
 // http.RoundTripper, a per-attempt timeout layer under it, and an *http.Client with no automatic
 // redirect handling (R8, R12).
-package httpx
+package httpclient
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/avast/retry-go/v5"
 )
 
 // Defaults applied whenever the matching RetryTransport field is left at its zero value: 3
@@ -34,6 +36,10 @@ const retryAfterHeader = "Retry-After"
 // runs under its own AttemptTimeout (see TimeoutTransport), so a hung attempt is cut off and
 // retried while the waits between attempts are bounded only by the request's context. Every field
 // is optional; the zero value uses the documented defaults (R12).
+//
+// The attempt loop and the wait between attempts are github.com/avast/retry-go's. Everything that
+// makes it an HTTP retry is here: which requests and outcomes are retried, the delay, the
+// Retry-After cap, draining discarded bodies, and handing the last response back.
 type RetryTransport struct {
 	// Base is the underlying transport. A nil Base uses http.DefaultTransport.
 	Base http.RoundTripper
@@ -68,36 +74,62 @@ func (e *RetryAfterTooLongError) Error() string {
 	return fmt.Sprintf("retry-after %s for status %d exceeds the retry cap", e.RetryAfter, e.Status)
 }
 
+// attemptError carries one failed attempt through retry-go, whose loop sees only errors. err is
+// already worded for RoundTrip's caller. When hasRetryAfter is set, retryAfter is the wait the
+// server asked for, and it replaces the backoff before the next attempt.
+type attemptError struct {
+	err           error
+	retryAfter    time.Duration
+	hasRetryAfter bool
+}
+
+// Error implements the error interface for attemptError.
+func (e *attemptError) Error() string {
+	return e.err.Error()
+}
+
+// Unwrap exposes the caller-facing error, so errors.Is and errors.As see through an attemptError.
+func (e *attemptError) Unwrap() error {
+	return e.err
+}
+
 // RoundTrip implements http.RoundTripper. It retries req against t.Base as documented on
 // RetryTransport, and otherwise returns the first attempt's outcome unchanged.
 func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	base := &TimeoutTransport{Base: t.base(), Timeout: t.AttemptTimeout}
-	retryable := isRetryableRequest(req)
-	ctx := req.Context()
 
-	for attempt := 0; ; attempt++ {
+	if !isRetryableRequest(req) {
 		resp, err := base.RoundTrip(req)
 		if err != nil {
-			if !retryable || attempt >= t.maxRetries() {
-				return nil, fmt.Errorf("httpx: base round trip: %w", err)
-			}
-
-			if waitErr := t.wait(ctx, t.backoff(attempt)); waitErr != nil {
-				return nil, waitErr
-			}
-
-			continue
+			return nil, fmt.Errorf("httpclient: base round trip: %w", err)
 		}
 
-		retry, actionErr := t.nextResponseAction(ctx, retryable, attempt, resp)
-		if actionErr != nil {
-			return nil, actionErr
-		}
-
-		if !retry {
-			return resp, nil
-		}
+		return resp, nil
 	}
+
+	// retry-go returns no value alongside its final error, so the loop counts attempts itself:
+	// the final attempt hands a retryable response back as a success instead of failing with it.
+	attempts := t.attempts()
+	made := uint(0)
+
+	resp, err := retry.NewWithData[*http.Response](
+		retry.Attempts(attempts),
+		retry.Context(req.Context()),
+		retry.Delay(t.baseDelay()),
+		retry.DelayType(t.delay),
+		// Without it retry-go gives up with every attempt's error joined into one retry.Error,
+		// whose errors.As finds the first attempt's failure rather than the last.
+		retry.LastErrorOnly(true),
+	).Do(func() (*http.Response, error) {
+		made++
+
+		return t.attempt(base, req, made == attempts)
+	})
+	if err != nil {
+		return nil, finalError(err)
+	}
+
+	return resp, nil
 }
 
 // base returns t.Base, or http.DefaultTransport if it is nil.
@@ -116,6 +148,12 @@ func (t *RetryTransport) maxRetries() int {
 	}
 
 	return defaultMaxRetries
+}
+
+// attempts returns how many attempts one request gets: the first, plus maxRetries retries. A
+// negative MaxRetries means no retry at all, never retry-go's Attempts(0), which retries forever.
+func (t *RetryTransport) attempts() uint {
+	return uint(max(t.maxRetries(), 0)) + 1
 }
 
 // baseDelay returns t.BaseDelay, or the documented default if it is zero.
@@ -145,78 +183,69 @@ func (t *RetryTransport) jitter() float64 {
 	return rand.Float64() //nolint:gosec // jitter for a retry backoff is not a security context
 }
 
-// backoff computes the wait before the retry that follows a failed attempt numbered attempt
-// (0-indexed): BaseDelay*2^attempt*(0.8+0.4*Jitter()).
-func (t *RetryTransport) backoff(attempt int) time.Duration {
+// delay is retry-go's DelayType. Before retry n (1-based) after a failed attempt err, it waits
+// what the server asked for in a Retry-After header or, without one, the exponential backoff
+// BaseDelay*2^(n-1)*(0.8+0.4*Jitter()). retry-go's own jitter is only ever additive, never ±20%.
+func (t *RetryTransport) delay(n uint, err error, config retry.DelayContext) time.Duration {
+	if failed, ok := errors.AsType[*attemptError](err); ok && failed.hasRetryAfter {
+		return failed.retryAfter
+	}
+
 	factor := jitterFloor + jitterSpread*t.jitter()
 
-	return time.Duration(float64(t.baseDelay()) * math.Pow(2, float64(attempt)) * factor)
+	return time.Duration(float64(config.Delay()) * math.Pow(2, float64(n-1)) * factor)
 }
 
-// nextResponseAction decides what RoundTrip does with a response that arrived without a network
-// error: return it as-is (retry false, err nil), retry it after waiting (retry true), or fail
-// immediately because a Retry-After header exceeded MaxWait (retry false, err set). A response
-// this discards in favor of a retry is drained and closed first; a response it hands back is
-// left untouched for the caller to close.
-func (t *RetryTransport) nextResponseAction(
-	ctx context.Context, retryable bool, attempt int, resp *http.Response,
-) (retry bool, err error) {
-	if !retryable || !isRetryableStatus(resp.StatusCode) {
-		return false, nil
+// attempt makes one attempt and tells retry-go what became of it. It returns the response when
+// there is nothing to retry: a non-retryable status, or a retryable one on the final attempt. It
+// fails with an *attemptError to have retry-go wait and try again, or with an unrecoverable one
+// when a Retry-After header exceeds MaxWait. A response it discards is drained and closed first;
+// a response it returns is left untouched for the caller to close.
+func (t *RetryTransport) attempt(base http.RoundTripper, req *http.Request, final bool) (*http.Response, error) {
+	resp, err := base.RoundTrip(req)
+	if err != nil {
+		return nil, &attemptError{err: fmt.Errorf("httpclient: base round trip: %w", err)}
 	}
 
-	delay, tooLongErr := t.delayFor(resp, attempt)
-	if tooLongErr != nil {
-		drainAndClose(resp.Body)
-
-		return false, fmt.Errorf("httpx: %w", tooLongErr)
+	if !isRetryableStatus(resp.StatusCode) {
+		return resp, nil
 	}
 
-	if attempt >= t.maxRetries() {
-		return false, nil
+	failed := &attemptError{err: fmt.Errorf("httpclient: retryable status %d", resp.StatusCode)}
+
+	if header := resp.Header.Get(retryAfterHeader); header != "" {
+		failed.retryAfter, failed.hasRetryAfter = parseRetryAfter(header), true
+
+		if failed.retryAfter > t.maxWait() {
+			drainAndClose(resp.Body)
+
+			tooLong := &RetryAfterTooLongError{Status: resp.StatusCode, RetryAfter: failed.retryAfter}
+
+			// retry-go looks for Unrecoverable anywhere in the chain, so marking the caller-facing
+			// error stops the loop at once and still leaves the *RetryAfterTooLongError reachable.
+			return nil, &attemptError{err: retry.Unrecoverable(fmt.Errorf("httpclient: %w", tooLong))}
+		}
+	}
+
+	if final {
+		return resp, nil
 	}
 
 	drainAndClose(resp.Body)
 
-	if waitErr := t.wait(ctx, delay); waitErr != nil {
-		return false, waitErr
-	}
-
-	return true, nil
+	return nil, failed
 }
 
-// delayFor returns how long to wait before retrying resp: the computed backoff, or a
-// Retry-After header's wait if the response carries one. It reports a *RetryAfterTooLongError
-// instead of a delay when that wait exceeds MaxWait.
-func (t *RetryTransport) delayFor(resp *http.Response, attempt int) (time.Duration, *RetryAfterTooLongError) {
-	header := resp.Header.Get(retryAfterHeader)
-	if header == "" {
-		return t.backoff(attempt), nil
+// finalError turns the error retry-go gives up with into the one RoundTrip reports. An attempt
+// fails only with an *attemptError, already worded for the caller. Any other error is the
+// request's context, which retry-go returns when it ends during a wait, or before the first
+// attempt when it had already ended.
+func finalError(err error) error {
+	if failed, ok := errors.AsType[*attemptError](err); ok {
+		return failed.err
 	}
 
-	retryAfter := parseRetryAfter(header)
-	if retryAfter > t.maxWait() {
-		return 0, &RetryAfterTooLongError{Status: resp.StatusCode, RetryAfter: retryAfter}
-	}
-
-	return retryAfter, nil
-}
-
-// wait blocks for delay, or until ctx is done, whichever comes first.
-func (t *RetryTransport) wait(ctx context.Context, delay time.Duration) error {
-	if delay <= 0 {
-		return nil
-	}
-
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("httpx: wait interrupted: %w", ctx.Err())
-	}
+	return fmt.Errorf("httpclient: request context ended: %w", err)
 }
 
 // isRetryableRequest reports whether req is eligible for a retry at all: only GET and HEAD are

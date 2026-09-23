@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/config"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/report"
 )
@@ -101,7 +101,7 @@ func sortedAccounts(accounts []report.AccountResult) []accountView {
 
 	for i := range accounts {
 		a := &accounts[i]
-		if a.Mapping.Status == mapping.Excluded {
+		if a.Mapping.Status == accountmap.Excluded {
 			continue
 		}
 
@@ -123,7 +123,7 @@ func sortedAccounts(accounts []report.AccountResult) []accountView {
 
 // maskedID identifies m's bank account without exposing it (FR-036): the masked IBAN, or the
 // masked hash for an account the bank reports no IBAN for.
-func maskedID(m mapping.Mapping) string {
+func maskedID(m accountmap.Mapping) string {
 	if m.Bank.IBAN != "" {
 		return redact.MaskIBAN(m.Bank.IBAN)
 	}

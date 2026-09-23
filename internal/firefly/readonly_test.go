@@ -3,12 +3,18 @@ package firefly
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
-	"sync/atomic"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/suite"
 )
+
+// fireflyTestURL is the fixed, unreachable base URL every suite in this package registers its
+// httpmock responders against and passes to New. Requests never leave the process: httpmock
+// intercepts them at the http.RoundTripper each client is built with (per-client
+// httpmock.NewMockTransport, never the global DefaultTransport), so the exact host is arbitrary and
+// shared across suites for consistency.
+const fireflyTestURL = "http://firefly.test"
 
 // ReadOnlySuite covers the Firefly III read-only transport guard (T031, FR-001, constitution §I,
 // research R8): every write method is rejected by ReadOnlyTransport before the request leaves the
@@ -36,17 +42,25 @@ func (s *ReadOnlySuite) readMethods() []string {
 	return []string{http.MethodGet}
 }
 
-// countingServer starts an httptest.Server that answers every request with status and counts how
-// many requests actually reached it, so a test can assert a blocked request never left the process.
-func (s *ReadOnlySuite) countingServer(status int) (*httptest.Server, *atomic.Int32) {
-	var hits atomic.Int32
+// mockTransport returns an httpmock.MockTransport whose only registered responder answers GET
+// fireflyTestURL with status, so a test can assert exactly how many requests actually reached it
+// via GetTotalCallCount -- a blocked write method must never reach it at all, since ReadOnlyTransport
+// rejects it before Base.RoundTrip is ever called.
+//
+// RegisterNoResponder is required for that proof to mean anything: httpmock counts a request only
+// once it reaches a responder, and an unmatched request with no NoResponder registered fails with
+// ConnectionFailure without being counted at all, so GetTotalCallCount would read 0 whether or not
+// the write method actually reached this transport -- a write method leaking past ReadOnlyTransport
+// has no registered responder either (only GET is registered above), so without a NoResponder the
+// leak would go uncounted and the assertion would be vacuously true.
+// Registering ConnectionFailure (httpmock's own default) as the NoResponder keeps the response
+// behavior identical while making every request that reaches the transport counted, matched or not.
+func (s *ReadOnlySuite) mockTransport(status int) *httpmock.MockTransport {
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/", httpmock.NewStringResponder(status, ""))
+	transport.RegisterNoResponder(httpmock.ConnectionFailure)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
-		w.WriteHeader(status)
-	}))
-
-	return server, &hits
+	return transport
 }
 
 // TestRoundTripBlocksWriteMethodsDirectly asserts that calling ReadOnlyTransport.RoundTrip
@@ -55,22 +69,20 @@ func (s *ReadOnlySuite) countingServer(status int) (*httptest.Server, *atomic.In
 func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsDirectly() {
 	for _, method := range s.rejectedMethods() {
 		s.Run(method, func() {
-			server, hits := s.countingServer(http.StatusOK)
-			defer server.Close()
+			transport := s.mockTransport(http.StatusOK)
+			roTransport := &ReadOnlyTransport{Base: transport}
 
-			transport := &ReadOnlyTransport{Base: http.DefaultTransport}
-
-			req, err := http.NewRequestWithContext(context.Background(), method, server.URL, http.NoBody)
+			req, err := http.NewRequestWithContext(context.Background(), method, fireflyTestURL+"/", http.NoBody)
 			s.Require().NoError(err)
 
-			resp, err := transport.RoundTrip(req)
+			resp, err := roTransport.RoundTrip(req)
 			if resp != nil {
 				s.Require().NoError(resp.Body.Close())
 			}
 
 			s.Require().Error(err)
 			s.Require().ErrorIs(err, ErrWriteForbidden)
-			s.Equal(int32(0), hits.Load(), "a blocked write method must never reach the server")
+			s.Equal(0, transport.GetTotalCallCount(), "a blocked write method must never reach the server")
 		})
 	}
 }
@@ -80,12 +92,10 @@ func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsDirectly() {
 func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsThroughHTTPClient() {
 	for _, method := range s.rejectedMethods() {
 		s.Run(method, func() {
-			server, hits := s.countingServer(http.StatusOK)
-			defer server.Close()
+			transport := s.mockTransport(http.StatusOK)
+			client := &http.Client{Transport: &ReadOnlyTransport{Base: transport}}
 
-			client := &http.Client{Transport: &ReadOnlyTransport{Base: http.DefaultTransport}}
-
-			req, err := http.NewRequestWithContext(context.Background(), method, server.URL, http.NoBody)
+			req, err := http.NewRequestWithContext(context.Background(), method, fireflyTestURL+"/", http.NoBody)
 			s.Require().NoError(err)
 
 			resp, err := client.Do(req)
@@ -95,7 +105,7 @@ func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsThroughHTTPClient() {
 
 			s.Require().Error(err)
 			s.Require().ErrorIs(err, ErrWriteForbidden)
-			s.Equal(int32(0), hits.Load(), "a blocked write method must never reach the server")
+			s.Equal(0, transport.GetTotalCallCount(), "a blocked write method must never reach the server")
 		})
 	}
 }
@@ -108,12 +118,10 @@ func (s *ReadOnlySuite) TestRoundTripBlocksWriteMethodsThroughHTTPClient() {
 func (s *ReadOnlySuite) TestClientRejectsWriteMethodsThroughItsOwnHTTPClient() {
 	for _, method := range s.rejectedMethods() {
 		s.Run(method, func() {
-			server, hits := s.countingServer(http.StatusOK)
-			defer server.Close()
+			transport := s.mockTransport(http.StatusOK)
+			client := New(fireflyTestURL, "tok", transport)
 
-			client := New(server.URL, "tok", http.DefaultTransport)
-
-			req, err := http.NewRequestWithContext(context.Background(), method, server.URL, http.NoBody)
+			req, err := http.NewRequestWithContext(context.Background(), method, fireflyTestURL+"/", http.NoBody)
 			s.Require().NoError(err)
 
 			resp, err := client.hc.Do(req)
@@ -124,8 +132,8 @@ func (s *ReadOnlySuite) TestClientRejectsWriteMethodsThroughItsOwnHTTPClient() {
 			s.Require().Error(err)
 			s.Require().ErrorIs(err, ErrWriteForbidden)
 			s.Equal(
-				int32(0),
-				hits.Load(),
+				0,
+				transport.GetTotalCallCount(),
 				"New must wire the read-only guard so a write method never reaches the server",
 			)
 		})
@@ -137,12 +145,10 @@ func (s *ReadOnlySuite) TestClientRejectsWriteMethodsThroughItsOwnHTTPClient() {
 func (s *ReadOnlySuite) TestRoundTripPassesThroughReadMethods() {
 	for _, method := range s.readMethods() {
 		s.Run(method, func() {
-			server, hits := s.countingServer(http.StatusOK)
-			defer server.Close()
+			transport := s.mockTransport(http.StatusOK)
+			client := &http.Client{Transport: &ReadOnlyTransport{Base: transport}}
 
-			client := &http.Client{Transport: &ReadOnlyTransport{Base: http.DefaultTransport}}
-
-			req, err := http.NewRequestWithContext(context.Background(), method, server.URL, http.NoBody)
+			req, err := http.NewRequestWithContext(context.Background(), method, fireflyTestURL+"/", http.NoBody)
 			s.Require().NoError(err)
 
 			resp, err := client.Do(req)
@@ -150,7 +156,7 @@ func (s *ReadOnlySuite) TestRoundTripPassesThroughReadMethods() {
 			s.Require().NoError(resp.Body.Close())
 
 			s.Equal(http.StatusOK, resp.StatusCode)
-			s.Equal(int32(1), hits.Load(), "a read method must reach the server exactly once")
+			s.Equal(1, transport.GetTotalCallCount(), "a read method must reach the server exactly once")
 		})
 	}
 }
@@ -160,15 +166,15 @@ func (s *ReadOnlySuite) TestRoundTripPassesThroughReadMethods() {
 // for the first host is never replayed to a redirect target. The redirect target's hit counter
 // must stay 0.
 func (s *ReadOnlySuite) TestGetDoesNotFollowRedirect() {
-	serverB, hitsB := s.countingServer(http.StatusOK)
-	defer serverB.Close()
+	const targetURL = "http://firefly-redirect.test/"
 
-	serverA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, serverB.URL, http.StatusFound)
-	}))
-	defer serverA.Close()
+	transport := httpmock.NewMockTransport()
 
-	client := New(serverA.URL, "token", http.DefaultTransport)
+	redirect := httpmock.NewStringResponder(http.StatusFound, "").HeaderSet(http.Header{"Location": {targetURL}})
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/", redirect)
+	transport.RegisterResponder(http.MethodGet, targetURL, httpmock.NewStringResponder(http.StatusOK, ""))
+
+	client := New(fireflyTestURL, "token", transport)
 
 	resp, err := client.get(context.Background(), "/", nil)
 	if resp != nil {
@@ -176,7 +182,11 @@ func (s *ReadOnlySuite) TestGetDoesNotFollowRedirect() {
 	}
 
 	s.Require().Error(err, "a 3xx response must be treated as an error, never followed")
-	s.Equal(int32(0), hitsB.Load(), "the redirect target must never be hit")
+	s.Equal(
+		0,
+		transport.GetCallCountInfo()[http.MethodGet+" "+targetURL],
+		"the redirect target must never be hit",
+	)
 }
 
 // TestGetSendsBearerAndAcceptHeadersAndTheRequestedPath asserts (*Client).get sends
@@ -191,17 +201,19 @@ func (s *ReadOnlySuite) TestGetSendsBearerAndAcceptHeadersAndTheRequestedPath() 
 		gotHeader http.Header
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		gotQuery = r.URL.Query()
-		gotHeader = r.Header.Clone()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts",
+		func(req *http.Request) (*http.Response, error) {
+			gotMethod = req.Method
+			gotPath = req.URL.Path
+			gotQuery = req.URL.Query()
+			gotHeader = req.Header.Clone()
 
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+			return httpmock.NewStringResponse(http.StatusOK, ""), nil
+		},
+	)
 
-	client := New(server.URL, "  tok\n", http.DefaultTransport)
+	client := New(fireflyTestURL, "  tok\n", transport)
 
 	resp, err := client.get(context.Background(), "/accounts", url.Values{"page": {"2"}})
 	s.Require().NoError(err)

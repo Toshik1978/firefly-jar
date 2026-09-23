@@ -1,4 +1,4 @@
-package mapping_test
+package accountmap_test
 
 import (
 	"testing"
@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// TestMapping is the single entry point for package mapping's test suites.
-func TestMapping(t *testing.T) {
+// TestAccountmap is the single entry point for package accountmap's test suites.
+func TestAccountmap(t *testing.T) {
 	suite.Run(t, new(AutoSuite))
 	suite.Run(t, new(StatusSuite))
 	suite.Run(t, new(OverrideSuite))

@@ -9,20 +9,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
 	"github.com/Toshik1978/firefly-jar/internal/config"
 	"github.com/Toshik1978/firefly-jar/internal/digest"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/reconcile"
 	"github.com/Toshik1978/firefly-jar/internal/report"
 )
+
+// TestDigest is the single entry point for package digest's test suites.
+func TestDigest(t *testing.T) {
+	suite.Run(t, new(RenderSuite))
+}
 
 // goldenDir holds the reviewed golden digests, relative to this package directory.
 const goldenDir = "../../testdata/digest"
@@ -620,14 +626,14 @@ func (s *RenderSuite) TestFreeTextFieldsAreSanitized() {
 func (s *RenderSuite) TestProblemLines() {
 	ambiguous := uncheckedAccount(bankAccount("revolut", ibanRevolut, "", "USD", "Revolut USD"),
 		report.Ambiguous, "")
-	ambiguous.Mapping.Status = mapping.Ambiguous
+	ambiguous.Mapping.Status = accountmap.Ambiguous
 	ambiguous.Mapping.Candidates = []firefly.Account{
 		{ID: "21", Name: "Revolut USD", IBAN: ibanRevolut, Currency: "USD", DecimalPlaces: 2, Active: true},
 		{ID: "22", Name: "Revolut USD old", IBAN: ibanRevolut, Currency: "USD", DecimalPlaces: 2, Active: true},
 	}
 
 	unmapped := uncheckedAccount(bankAccount("wise", "", hashWise, "JPY", "Yen"), report.Unmapped, "")
-	unmapped.Mapping.Status = mapping.Unmapped
+	unmapped.Mapping.Status = accountmap.Unmapped
 
 	rep := report.RunReport{
 		Window: s.window(),
@@ -761,7 +767,7 @@ func (s *RenderSuite) fullReport() report.RunReport {
 
 	ambiguous := uncheckedAccount(bankAccount("revolut", ibanRevolut, "", "USD", "Revolut USD"),
 		report.Ambiguous, "")
-	ambiguous.Mapping.Status = mapping.Ambiguous
+	ambiguous.Mapping.Status = accountmap.Ambiguous
 	ambiguous.Mapping.Candidates = []firefly.Account{
 		{ID: "21", Name: "Revolut USD", IBAN: ibanRevolut, Currency: "USD", DecimalPlaces: 2, Active: true},
 		{ID: "22", Name: "Revolut USD old", IBAN: ibanRevolut, Currency: "USD", DecimalPlaces: 2, Active: true},
@@ -790,7 +796,7 @@ func (s *RenderSuite) fullReport() report.RunReport {
 func (s *RenderSuite) missingOnlyReport() report.RunReport {
 	wise := s.checkedAccount(bankAccount("wise", "", hashWise, "JPY", "Yen"), 0,
 		s.missing("2026-09-05", "-1200", "JPY", "RAMEN BAR"))
-	wise.Mapping.Status = mapping.Override
+	wise.Mapping.Status = accountmap.Override
 
 	return report.RunReport{
 		Window: s.window(),
@@ -825,8 +831,8 @@ func (s *RenderSuite) consentOnlyReport() report.RunReport {
 }
 
 // window is the default fixture window, 30 days ending 2026-09-22.
-func (s *RenderSuite) window() domain.Window {
-	return domain.Window{From: s.date("2026-08-24"), To: s.date("2026-09-22")}
+func (s *RenderSuite) window() civil.Range {
+	return civil.Range{From: s.date("2026-08-24"), To: s.date("2026-09-22")}
 }
 
 // date parses a YYYY-MM-DD fixture date.
@@ -840,7 +846,7 @@ func (s *RenderSuite) date(v string) civil.Date {
 // missing returns a booked missing transaction with no flags and no hint; checkedAccount fills in
 // its Account.
 func (s *RenderSuite) missing(date, amount, currency, description string) reconcile.Missing {
-	a, err := domain.ParseAmount(amount, currency)
+	a, err := money.ParseAmount(amount, currency)
 	s.Require().NoError(err)
 
 	return reconcile.Missing{Tx: bank.Transaction{
@@ -861,9 +867,9 @@ func (s *RenderSuite) checkedAccount(
 	}
 
 	return report.AccountResult{
-		Mapping: mapping.Mapping{
+		Mapping: accountmap.Mapping{
 			Bank:   acct,
-			Status: mapping.Auto,
+			Status: accountmap.Auto,
 			Firefly: &firefly.Account{
 				ID:            "3",
 				Name:          acct.Name,
@@ -880,7 +886,7 @@ func (s *RenderSuite) checkedAccount(
 // uncheckedAccount returns an account reconciliation never ran against, for code.
 func uncheckedAccount(acct bank.Account, code report.UncheckedCode, detail string) report.AccountResult {
 	return report.AccountResult{
-		Mapping:   mapping.Mapping{Bank: acct, Status: mapping.Auto},
+		Mapping:   accountmap.Mapping{Bank: acct, Status: accountmap.Auto},
 		Unchecked: &report.Unchecked{Code: code, Detail: detail},
 	}
 }
@@ -889,7 +895,7 @@ func uncheckedAccount(acct bank.Account, code report.UncheckedCode, detail strin
 // produces; a non-empty one proves Render ignores it rather than happening to see nothing.
 func (s *RenderSuite) excludedAccount(acct bank.Account, missing ...reconcile.Missing) report.AccountResult {
 	result := s.checkedAccount(acct, 2, missing...)
-	result.Mapping.Status = mapping.Excluded
+	result.Mapping.Status = accountmap.Excluded
 	result.Mapping.Firefly = nil
 
 	return result

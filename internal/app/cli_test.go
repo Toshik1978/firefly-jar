@@ -19,7 +19,7 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/civil"
 	"github.com/Toshik1978/firefly-jar/internal/config"
 	"github.com/Toshik1978/firefly-jar/internal/digest"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
@@ -491,7 +491,7 @@ func (s *CLISuite) writeSecret(path, content string) {
 func (s *CLISuite) bankTx(date, amount, ref, description string) bank.Transaction {
 	s.T().Helper()
 
-	value, err := domain.ParseAmount(amount, "EUR")
+	value, err := money.ParseAmount(amount, "EUR")
 	s.Require().NoError(err)
 
 	d, err := civil.ParseDate(date)

@@ -18,7 +18,7 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/app"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/state"
@@ -557,7 +557,7 @@ func (s *AcceptanceUS4Suite) newDeliveryHarness(results map[string][]notify.Resu
 func (s *AcceptanceUS4Suite) bankTx(date, amount, ref, description string) bank.Transaction {
 	s.T().Helper()
 
-	value, err := domain.ParseAmount(amount, "EUR")
+	value, err := money.ParseAmount(amount, "EUR")
 	s.Require().NoError(err)
 
 	d, err := civil.ParseDate(date)

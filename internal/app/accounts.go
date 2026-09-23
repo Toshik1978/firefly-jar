@@ -7,9 +7,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/digest"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 )
 
@@ -87,12 +87,12 @@ func accountRows(deps Deps, ffAccounts []firefly.Account) ([]accountRow, bool, [
 			continue
 		}
 
-		mappings := mapping.Resolve(bankAccounts(key, &session), ffAccounts, deps.Config.Accounts)
+		mappings := accountmap.Resolve(bankAccounts(key, &session), ffAccounts, deps.Config.Accounts)
 		for i := range mappings {
 			rows = append(rows, newAccountRow(key, mappings[i]))
 
 			status := mappings[i].Status
-			if status != mapping.Excluded && status != mapping.Auto && status != mapping.Override {
+			if status != accountmap.Excluded && status != accountmap.Auto && status != accountmap.Override {
 				complete = false
 			}
 		}
@@ -103,7 +103,7 @@ func accountRows(deps Deps, ffAccounts []firefly.Account) ([]accountRow, bool, [
 
 // newAccountRow renders one resolved mapping as a table row. ACCOUNT is the masked IBAN when the bank
 // account has one, or its masked hash otherwise (a card with no IBAN, contracts/cli.md).
-func newAccountRow(bankKey string, m mapping.Mapping) accountRow {
+func newAccountRow(bankKey string, m accountmap.Mapping) accountRow {
 	account := redact.MaskHash(m.Bank.Hash)
 	if m.Bank.IBAN != "" {
 		account = redact.MaskIBAN(m.Bank.IBAN)
@@ -122,12 +122,12 @@ func newAccountRow(bankKey string, m mapping.Mapping) accountRow {
 
 // fireflyColumn renders the FIREFLY column: "#<id> <name>" for an auto or override match, the sorted
 // candidate ids for an ambiguous one, or unmappedMark for anything else (contracts/cli.md).
-func fireflyColumn(m mapping.Mapping) string {
+func fireflyColumn(m accountmap.Mapping) string {
 	if m.Firefly != nil {
 		return "#" + m.Firefly.ID + " " + m.Firefly.Name
 	}
 
-	if m.Status == mapping.Ambiguous {
+	if m.Status == accountmap.Ambiguous {
 		ids := make([]string, 0, len(m.Candidates))
 		for _, c := range m.Candidates {
 			ids = append(ids, "#"+c.ID)

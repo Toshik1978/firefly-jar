@@ -9,13 +9,12 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
 	"github.com/Toshik1978/firefly-jar/internal/config"
 	"github.com/Toshik1978/firefly-jar/internal/digest"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/report"
@@ -56,7 +55,7 @@ type checkRun struct {
 	deps      Deps
 	now       time.Time
 	today     civil.Date
-	window    domain.Window
+	window    civil.Range
 	tolerance int
 }
 
@@ -89,7 +88,7 @@ func newCheckRun(deps Deps) *checkRun {
 		deps:      deps,
 		now:       now,
 		today:     today,
-		window:    domain.NewWindow(today, deps.Config.WindowDays),
+		window:    civil.NewRange(today, deps.Config.WindowDays),
 		tolerance: deps.Config.DateToleranceDays,
 	}
 }
@@ -151,7 +150,7 @@ func (r *checkRun) reconcileBank(ctx context.Context, rep *report.RunReport, key
 	case consentOK:
 	}
 
-	mappings := mapping.Resolve(bankAccounts(key, session), ffAccounts, r.deps.Config.Accounts)
+	mappings := accountmap.Resolve(bankAccounts(key, session), ffAccounts, r.deps.Config.Accounts)
 	for i := range mappings {
 		if lost {
 			rep.Accounts = append(rep.Accounts, r.consentUnchecked(ctx, mappings[i], lostCode))

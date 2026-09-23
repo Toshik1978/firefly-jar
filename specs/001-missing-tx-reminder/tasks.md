@@ -15,6 +15,11 @@ and must be **seen failing for the expected reason** before its implementation t
 **Organization**: Tasks are grouped by user story (spec.md US1–US4) so each story can be implemented and
 tested as its own increment.
 
+**Package renames after this list was built**: the task lines below are the historical record and keep the
+package names they were built with. `internal/domain` has since split into `internal/money` (`Amount`,
+`ParseAmount`) and `civil.Range` in `internal/civil` (formerly `domain.Window`), `internal/mapping` is now
+`internal/accountmap`, and `internal/httpx` is now `internal/httpclient`.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependency on an incomplete task)
@@ -78,7 +83,8 @@ Constitution §III step 1 needs a git repository. Before any task:
   - `audit`: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`.
   - `clean`: `rm -rf {{.BINARY}} dist/ cover.out`.
 - [x] T002 [P] Create `.mise.toml` with `[tools]` `go = "1.27"`, `golangci-lint = "latest"` and `git-cliff = "2"`.
-  Add a comment explaining why golangci-lint floats: it must match CI's `latest`.
+  Add a comment explaining why golangci-lint floats: it must match CI's `latest`. (git-cliff was later removed
+  from the toolchain; this entry stays as the historical record of what T002 originally did.)
 - [x] T003 [P] Create `.pre-commit-config.yaml`:
   - `default_install_hook_types: [pre-commit, pre-push, commit-msg]`.
   - Repo `https://github.com/compilerla/conventional-pre-commit` rev `v4.4.0`, hook `conventional-pre-commit`

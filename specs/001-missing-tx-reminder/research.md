@@ -180,7 +180,8 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
   "MUST issue only `GET` requests"; `HEAD`, `OPTIONS` and extension methods are refused too). The client
   package exposes only `ListAccounts` and `ListAccountTransactions`. Tests confirm that
   POST/PUT/PATCH/DELETE, HEAD, OPTIONS, TRACE, CONNECT and an extension method through the transport fail and
-  never reach an `httptest` server, and that a redirect is not followed.
+  never reach the base transport, an `httpmock` transport whose no-responder counts every request that
+  reaches it, and that a redirect is not followed.
 - **Errors**: 401 (or a 403, e.g. from a proxy) means "Firefly token rejected", reported in the digest as
   "Firefly III unauthorized" rather than "unreachable", and 404 means "account #N not found". Both come as
   `{"message","exception"}`. A 422 has `{"message","errors"}`. 5xx, network errors and 429 (only ever from a
@@ -245,8 +246,49 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
   than cut short. There is no timeout across one request's retries; the whole `check` (or `accounts`) run is
   capped at 10 minutes by its context, and that cap bounds the waits too. Telegram gets the same 30 s
   per-attempt bound without the retry layer.
+- **Implementation** (owner decision, 2026-09-23): the attempt loop and the wait between attempts are
+  `github.com/avast/retry-go/v5` (MIT, no runtime dependencies). `httpclient.RetryTransport` keeps every HTTP rule
+  above in its own code, because retry-go knows nothing about HTTP:
+  - Requests other than bodyless GET and HEAD never enter retry-go and go straight to the timeout layer.
+  - Each attempt turns a network error, 5xx or 429 into a typed error that carries any `Retry-After` wait.
+    A custom `DelayType` reads that wait, or else computes the 1 s, 2 s, 4 s backoff with an injectable ±20%
+    jitter. retry-go's own jitter only adds to the delay, so it cannot express ±20%.
+  - A `Retry-After` over the cap fails the attempt with `retry.Unrecoverable`, and callers still find
+    `*RetryAfterTooLongError` with `errors.As`.
+  - retry-go returns no value alongside its final error. The wrapper therefore counts attempts itself and
+    returns the final attempt's retryable response as a success, so the caller still gets the last status
+    and body.
+  - `LastErrorOnly(true)` keeps retry-go from joining every attempt's error into one.
+  - `retry.Context` stops the wait when the request's context ends. It also checks the context before the
+    first attempt, so a request whose context has already ended is never sent. The hand-written loop made
+    that one attempt anyway.
+  - A request whose context ends before the first attempt or during a wait fails with
+    `httpclient: request context ended`, wrapping the context's `context.Cause` (which is `ctx.Err()` unless
+    a cause was set). The hand-written loop reported `wait interrupted` with `ctx.Err()`. `errors.Is` finds
+    the context's error either way.
+  - Discarded bodies are drained (at most 64 KiB) and closed by the wrapper.
 - **Testing**: `testing/synctest` (GA since Go 1.25) makes the backoff and `Retry-After` tests run instantly
-  and deterministically.
+  and deterministically. retry-go waits on `time.After`, which follows the bubble's fake clock. Guard tests
+  pin two behaviours that the library's defaults would change: giving up reports only the last attempt's
+  error, and retrying writes nothing to stderr.
+- **Alternatives considered**:
+  - The original hand-written loop and timer, which used only the stdlib. retry-go replaced it by owner
+    decision. The HTTP rules did not change, and the tests that pinned them pass unchanged. The two
+    differences are the ones listed above: no attempt at all once the context has ended, and the wording of
+    the cancellation error.
+  - `github.com/hashicorp/go-retryablehttp` was rejected. Its defaults conflict with this decision and the
+    project invariants:
+    - It logs every request to stderr through a global logger, and cron mails any output.
+    - It retries POST and replays the body.
+    - It honours `Retry-After` only on 429 and 503, with no cap, and parses only one date format.
+    - It follows redirects in a nested `http.Client`.
+    - It puts the full URL in its errors.
+    - When it gives up it drops the last response. Handing that response back makes `net/http` log a
+      warning to stderr.
+
+    Each of these would need a hook of our own and a test to pin it. It also pulls in
+    `github.com/hashicorp/go-cleanhttp` v0.5.2 (released 2021), which fails the release-date rule. It is
+    MPL-2.0 and pre-1.0.
 
 ## R13. YAML parser
 
@@ -286,7 +328,7 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
     calendar dates. Firefly dates are the `YYYY-MM-DD` prefix as rendered by the server (R8). "Today" and
     the window are computed once per run in the configured time zone. Day arithmetic uses `AddDays` and
     `DaysSince` (the signed day count between two dates); an earlier hand-rolled `DaysBetween` was renamed
-    to `DaysSince` when `internal/civil` replaced the original `domain.Date` (R19).
+    to `DaysSince` when `internal/civil` replaced the original hand-rolled date type (R19).
 - **Rationale**: Exact comparison (FR-007), no hard-coded ISO 4217 table, and immunity to the two sides'
   different decimal precision. `shopspring/decimal` replaced a hand-rolled `Amount{Minor int64, Scale
   uint8, Currency string}` once the owner widened the dependency policy (2026-09-22): it is well-tested and
@@ -304,8 +346,8 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
 - **Decision**:
   - **Task runner**: `go-task` (`Taskfile.yml`) with `setup`, `format`, `format:check`, `lint`, `test`
     (`go test -race ./...`), `build`, `check` (format:check → lint → test), `audit` (govulncheck), `clean`.
-  - **Pinned tooling**: `mise` (`.mise.toml`: `go = "1.27"`, `golangci-lint = "2.13.2"`, `git-cliff = "2"`; CI's
-    golangci-lint-action pins the same golangci-lint release).
+  - **Pinned tooling**: `mise` (`.mise.toml`: `go = "1.27"`, `golangci-lint = "2.13.2"`; CI's golangci-lint-action
+    pins the same golangci-lint release).
   - **Lint**: golangci-lint v2 with the author's standard strict configuration, committed as `.golangci.yml`
     **verbatim**. Only the module path (gci prefix, gofumpt `module-path`) is adapted. Changes to it need
     explicit approval, the same as a dependency. It uses `default: none` plus an explicit linter list,
@@ -328,6 +370,25 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
 - **Alternatives considered**: plain `go test` with the stdlib `testing` package would avoid the dependency,
   but it was rejected for consistency with the suite-based conventions in `.claude/CLAUDE.md`. A Makefile was
   rejected in favor of go-task.
+- **HTTP test doubles** (owner decision, 2026-09-23):
+  - **Decision**: `github.com/jarcoal/httpmock` v1.4.2 (MIT, released 2026-07-28), **test-only**, like
+    testify. Every HTTP adapter test (`firefly`, `bank/enablebanking`, `notify/telegram`, `httpclient`)
+    injects its own `httpmock.NewMockTransport()` into the client under test, never `httpmock.Activate` or
+    the global `http.DefaultTransport`, so tests stay parallel-safe. Where a test counts requests, it
+    registers a no-responder, because httpmock does not count a request that matches no responder.
+    `internal/app` keeps `httptest.Server`: `app.RunEnv` and `BuildDeps` build their own real
+    `http.Client`s and have no test-visible transport seam.
+  - **Rationale**: One library replaces the recording, scripting and call-counting code each package had
+    written for its own fake servers and `http.RoundTripper`s. It is in-process and opens no sockets, so it
+    works inside a `testing/synctest` bubble, where an `httptest.Server` would hang the fake clock. When the
+    request's context can end, it runs the responder on a goroutine of its own, so a test reads what the
+    responder recorded only after `synctest.Wait()`. The package imports only the standard library. Its own
+    test dependencies, `github.com/maxatome/go-testdeep` and `github.com/davecgh/go-spew`, appear in
+    `go.sum` for module-graph verification but are never compiled into this module's build or test
+    binaries. It never reaches the binary, which is justified here per Principle VI.
+  - **Alternatives considered**: `httptest.Server` plus hand-written fake `http.RoundTripper`s, which used
+    only the stdlib. They were kept only where a real listener is the point (`internal/app`), because the
+    rest repeated the same scripting code in every package and a server cannot run inside a synctest bubble.
 
 ## R18. Reporting ambiguity instead of guessing (constitution §II, FR-025a)
 
@@ -354,14 +415,15 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
     `civil`, file `civil.go`; Apache-2.0 header kept). The `Time` and `DateTime` types, their
     `database/sql` `Scan`/`Value` integration, and `AddMonths`/`AddYears`/`Weekday` were removed because
     nothing in firefly-jar needs them. `ParseDate` and `UnmarshalText` now wrap the underlying error to
-    satisfy `wrapcheck`. This replaces the original hand-rolled `domain.Date`; `domain.Window` now embeds
-    `civil.Date` and `DaysBetween` is replaced by `civil.Date.DaysSince`.
+    satisfy `wrapcheck`. This replaces the original hand-rolled date type; the check window holds
+    `civil.Date` and `DaysBetween` is replaced by `civil.Date.DaysSince`. The window type itself,
+    `civil.Range`, is this repository's own code in `internal/civil/range.go`, beside the upstream copy.
 - **Rationale**: `flag.NewFlagSet` cannot express `check [--stdout]`, `auth <bank>`, `accounts [--ids]` and
   global flags without hand-written subcommand dispatch and usage text; cobra does this directly. Vendoring
   `civil.Date` gives the same well-tested proleptic-Gregorian date arithmetic as depending on
   `cloud.google.com/go/civil` without pulling in the rest of the `cloud.google.com/go` module tree, which
   firefly-jar otherwise has no use for.
-- **Alternatives considered**: `flag.NewFlagSet` and a hand-rolled `domain.Date` were the original
+- **Alternatives considered**: `flag.NewFlagSet` and a hand-rolled date type were the original
   decisions, kept only as long as the dependency policy required stdlib-only code; the owner widened that
   policy on 2026-09-22. Depending on `cloud.google.com/go/civil` directly was rejected only because of its
   module tree, not the type itself.

@@ -8,7 +8,7 @@ import (
 	"net/url"
 
 	"github.com/Toshik1978/firefly-jar/internal/bank"
-	"github.com/Toshik1978/firefly-jar/internal/httpx"
+	"github.com/Toshik1978/firefly-jar/internal/httpclient"
 )
 
 // Error codes the provider reports in an error body's "error" field that map to a bank sentinel
@@ -29,7 +29,7 @@ var errProvider = errors.New("enable banking request failed")
 // throttling us, the same as a final 429. Anything else is wrapped without its *url.Error shell,
 // whose message would repeat the full request URL.
 func mapTransportError(err error) error {
-	if tooLong, ok := errors.AsType[*httpx.RetryAfterTooLongError](err); ok {
+	if tooLong, ok := errors.AsType[*httpclient.RetryAfterTooLongError](err); ok {
 		return &bank.Error{
 			Kind:   bank.ErrRateLimited,
 			Detail: fmt.Sprintf("retry-after %s exceeds the retry cap", tooLong.RetryAfter),

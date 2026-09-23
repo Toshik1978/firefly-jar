@@ -1,5 +1,7 @@
 # firefly-jar
 
+**AI-driven experiment. Pull requests and issues are not accepted.**
+
 `firefly-jar` is a one-shot command-line tool that compares recent bank transactions with a
 self-hosted [Firefly III](https://www.firefly-iii.org/) instance and sends a reminder digest
 (Telegram and/or email) listing the bank transactions nobody entered yet.
@@ -17,6 +19,18 @@ you forgot.
 
 It runs once per invocation and exits — there is no daemon, no scheduler and no HTTP server. Cron
 (or any other scheduler) decides when it runs.
+
+## About this project
+
+The name is the same image as catching fireflies in a jar: `firefly-jar` catches the bank
+transactions that slip away before they are entered into Firefly III and get lost from the books.
+
+This is a large experiment in a fully vibe-coded application, taken from an idea to production by
+combining [Spec Kit](https://github.com/github/spec-kit) and
+[Superpowers](https://github.com/obra/superpowers). The code, the tests and this documentation were
+all written by AI agents working under that combined workflow. The result is shared as is.
+
+No pull requests and no issues — the repository is provided as is, with no support attached.
 
 ## Requirements
 
@@ -280,6 +294,30 @@ The digest reports each of them as unchecked:
 
 Other banks keep being checked normally; only the expired bank's accounts are affected. Run
 `firefly-jar auth <bank>` to fix it — the reported accounts return to being checked on the next run.
+
+### Bank not authorized
+
+A configured bank can end up with no usable saved session in two ways: no session was ever saved for
+it, or the saved session exists but names no accounts. Both are run-level problems, not per-account
+ones, so `check` reports them in the digest and exits 2:
+
+```text
+⚠ Problems
+- swedbank: not authorized — run: firefly-jar auth swedbank
+```
+
+```text
+⚠ Problems
+- swedbank: no accounts in the saved session — run: firefly-jar auth swedbank
+```
+
+`firefly-jar accounts` reports the same reason on stderr instead, and also exits 2:
+
+```text
+firefly-jar: swedbank: not authorized — run: firefly-jar auth swedbank
+```
+
+Either way, run `firefly-jar auth <bank>` to fix it — the bank is checked again on the next run.
 
 ### "Ambiguous mapping"
 

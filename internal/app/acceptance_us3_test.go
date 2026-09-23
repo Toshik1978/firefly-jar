@@ -16,13 +16,13 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/app"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
 
 // Anonymized fixture identifiers for AcceptanceUS3Suite (T069, spec.md User Story 3). One bank,
-// us3Bank, carries seven accounts, one per mapping.Status the resolution order can produce plus the
+// us3Bank, carries seven accounts, one per accountmap.Status the resolution order can produce plus the
 // multi-currency case spec.md US3 scenario 2 calls out: us3Main (auto), us3Override (an IBAN that
 // would auto-map, redirected by a hash override — scenario 4), us3MultiEUR/us3MultiUSD (one IBAN
 // shared by two currencies, each resolving to its own currency's Firefly III account — scenario 2),
@@ -260,7 +260,7 @@ func (h *us3Harness) outputLines() []string {
 // one bank (us3Bank) whose seven accounts cover every spec.md US3 acceptance scenario, plus the
 // Independent Test's own two-account flow on a second, isolated bank. It reuses cli_test.go's
 // cliFactory and check_test.go's fakeProvider and eventLog, so a defect this test finds is a defect
-// in mapping.go, check.go, check_account.go, accounts.go or digest.go, never in a test-only fake.
+// in accountmap.go, check.go, check_account.go, accounts.go or digest.go, never in a test-only fake.
 type AcceptanceUS3Suite struct {
 	suite.Suite
 }
@@ -299,7 +299,7 @@ func (s *AcceptanceUS3Suite) TestScenario1AnAutoMappedAccountIsShownAutoMapped()
 // Firefly III asset accounts with that IBAN in EUR and USD, each maps to the Firefly III account of
 // its own currency. Proven end to end: the EUR account's unentered transaction is reported missing
 // against the EUR Firefly III account, and the USD account's transaction, entered on the USD
-// Firefly III account, is not reported at all — which a currency mix-up in mapping.Resolve or
+// Firefly III account, is not reported at all — which a currency mix-up in accountmap.Resolve or
 // checkAccount would fail, since the USD account would then compare against the EUR account's
 // (empty) transactions and wrongly report its own transaction as missing too.
 func (s *AcceptanceUS3Suite) TestScenario2MultiCurrencyAccountsMapToTheirOwnCurrencysFireflyAccount() {
@@ -750,7 +750,7 @@ func (s *AcceptanceUS3Suite) writeSecret(path, content string) {
 func (s *AcceptanceUS3Suite) bankTx(date, amount, currency, ref, description string) bank.Transaction {
 	s.T().Helper()
 
-	value, err := domain.ParseAmount(amount, currency)
+	value, err := money.ParseAmount(amount, currency)
 	s.Require().NoError(err)
 
 	d, err := civil.ParseDate(date)

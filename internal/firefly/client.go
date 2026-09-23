@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Toshik1978/firefly-jar/internal/httpx"
+	"github.com/Toshik1978/firefly-jar/internal/httpclient"
 )
 
 // maxPages is the per-list safety cap on pages fetched (research R8): hitting it reports
@@ -41,8 +41,8 @@ type Option func(*Client)
 // New builds a Client for baseURL, authenticating every request with token, trimmed of
 // surrounding whitespace and newlines (a token loaded from a file commonly ends with one). base is
 // the transport New's retry and read-only layers wrap; a nil base uses http.DefaultTransport. The
-// composed chain is ReadOnlyTransport wrapping httpx.RetryTransport wrapping base, inside
-// httpx.NewClient, so a write request never leaves the process and a redirect is never followed
+// composed chain is ReadOnlyTransport wrapping httpclient.RetryTransport wrapping base, inside
+// httpclient.NewClient, so a write request never leaves the process and a redirect is never followed
 // (research R8, R12). The client logs nothing unless WithLogger is passed.
 func New(baseURL, token string, base http.RoundTripper, opts ...Option) *Client {
 	if base == nil {
@@ -52,8 +52,8 @@ func New(baseURL, token string, base http.RoundTripper, opts ...Option) *Client 
 	c := &Client{
 		baseURL: baseURL,
 		token:   strings.TrimSpace(token),
-		hc: httpx.NewClient(&ReadOnlyTransport{
-			Base: &httpx.RetryTransport{Base: base},
+		hc: httpclient.NewClient(&ReadOnlyTransport{
+			Base: &httpclient.RetryTransport{Base: base},
 		}),
 		logger: slog.New(slog.DiscardHandler),
 	}

@@ -9,7 +9,7 @@ import (
 
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 )
 
 // maxPages is the pagination safety cap per account (research R5): a continuation_key chain this
@@ -125,15 +125,15 @@ func entryDate(raw *transaction) (civil.Date, error) {
 // entryAmount parses the amount exactly and signs it from credit_debit_indicator, because the
 // provider's own sign convention is undocumented; a missing indicator falls back to that sign
 // (research R5). The currency is the entry's, else the account's.
-func entryAmount(acc bank.Account, raw *transaction) (domain.Amount, error) {
+func entryAmount(acc bank.Account, raw *transaction) (money.Amount, error) {
 	currency := raw.TransactionAmount.Currency
 	if currency == "" {
 		currency = acc.Currency
 	}
 
-	amount, err := domain.ParseAmount(raw.TransactionAmount.Amount, currency)
+	amount, err := money.ParseAmount(raw.TransactionAmount.Amount, currency)
 	if err != nil {
-		return domain.Amount{}, &bank.Error{
+		return money.Amount{}, &bank.Error{
 			Kind:   bank.ErrDataIncomplete,
 			Detail: fmt.Sprintf("entry %q has a malformed amount", raw.EntryReference),
 		}
@@ -164,7 +164,7 @@ func mapStatus(code string) bank.Status {
 
 // description picks the counterparty name for the entry's direction, else the first remittance
 // line, else noDescription. Without an indicator, the signed amount gives the direction.
-func description(raw *transaction, amount domain.Amount) string {
+func description(raw *transaction, amount money.Amount) string {
 	counterparty := raw.Creditor
 	if raw.CreditDebitIndicator == indicatorCredit || (raw.CreditDebitIndicator == "" && amount.Sign() > 0) {
 		counterparty = raw.Debtor

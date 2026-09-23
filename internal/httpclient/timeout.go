@@ -1,4 +1,4 @@
-package httpx
+package httpclient
 
 import (
 	"context"
@@ -44,7 +44,7 @@ func (t *TimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if err != nil {
 		cancel()
 
-		return nil, fmt.Errorf("httpx: round trip: %w", err)
+		return nil, fmt.Errorf("httpclient: round trip: %w", err)
 	}
 
 	resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
@@ -65,7 +65,7 @@ func (b *cancelOnClose) Close() error {
 	defer b.cancel()
 
 	if err := b.ReadCloser.Close(); err != nil {
-		return fmt.Errorf("httpx: close body: %w", err)
+		return fmt.Errorf("httpclient: close body: %w", err)
 	}
 
 	return nil

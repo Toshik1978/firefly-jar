@@ -37,8 +37,8 @@ type Client struct {
 }
 
 // New builds a Client for baseURL (normally DefaultBaseURL). The caller injects hc, which in
-// production is httpx.NewClient over an httpx.RetryTransport, so retries and timeouts stay in
-// httpx; signer mints the bearer JWT and r scrubs every provider message before it reaches an
+// production is httpclient.NewClient over an httpclient.RetryTransport, so retries and timeouts stay in
+// httpclient; signer mints the bearer JWT and r scrubs every provider message before it reaches an
 // error.
 func New(baseURL string, hc *http.Client, signer *Signer, r *redact.Redactor) *Client {
 	return &Client{

@@ -1,12 +1,12 @@
-package mapping_test
+package accountmap_test
 
 import (
 	"github.com/stretchr/testify/suite"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/config"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 )
 
 // OverrideSuite covers the override/exclude step of the resolution order in Resolve (T065/T066,
@@ -21,14 +21,14 @@ type OverrideSuite struct {
 // wantOverride is one Mapping's expected Status, Firefly pointer target id (empty for none) and
 // exact Detail.
 type wantOverride struct {
-	status    mapping.Status
+	status    accountmap.Status
 	fireflyID string
 	detail    string
 }
 
 // assertMapping checks Status, the Firefly pointer's target id (or nil) and the exact Detail for a
 // single Mapping.
-func (s *OverrideSuite) assertMapping(got mapping.Mapping, want wantOverride) {
+func (s *OverrideSuite) assertMapping(got accountmap.Mapping, want wantOverride) {
 	s.Equal(want.status, got.Status, "status")
 
 	if want.fireflyID == "" {
@@ -62,7 +62,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", Hash: "h1", FireflyAccountID: "100"},
 			},
 			want: []wantOverride{
-				{status: mapping.Override, fireflyID: "100"},
+				{status: accountmap.Override, fireflyID: "100"},
 			},
 		},
 		{
@@ -78,8 +78,8 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", IBAN: "LT000000000000000102", FireflyAccountID: "110"},
 			},
 			want: []wantOverride{
-				{status: mapping.Override, fireflyID: "110"},
-				{status: mapping.Override, fireflyID: "110"},
+				{status: accountmap.Override, fireflyID: "110"},
+				{status: accountmap.Override, fireflyID: "110"},
 			},
 		},
 		{
@@ -96,8 +96,8 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", IBAN: "LT000000000000000103", Currency: "USD", FireflyAccountID: "120"},
 			},
 			want: []wantOverride{
-				{status: mapping.Auto, fireflyID: "121"},
-				{status: mapping.Override, fireflyID: "120"},
+				{status: accountmap.Auto, fireflyID: "121"},
+				{status: accountmap.Override, fireflyID: "120"},
 			},
 		},
 		{
@@ -107,7 +107,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", Hash: "h4", Exclude: true},
 			},
 			want: []wantOverride{
-				{status: mapping.Excluded, fireflyID: ""},
+				{status: accountmap.Excluded, fireflyID: ""},
 			},
 		},
 		{
@@ -122,7 +122,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", Hash: "h5", FireflyAccountID: "131"},
 			},
 			want: []wantOverride{
-				{status: mapping.Override, fireflyID: "131"},
+				{status: accountmap.Override, fireflyID: "131"},
 			},
 		},
 		{
@@ -137,7 +137,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", Hash: "h6", FireflyAccountID: "141"},
 			},
 			want: []wantOverride{
-				{status: mapping.Override, fireflyID: "140"},
+				{status: accountmap.Override, fireflyID: "140"},
 			},
 		},
 		{
@@ -150,7 +150,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "other-bank", Hash: "h7", FireflyAccountID: "150"},
 			},
 			want: []wantOverride{
-				{status: mapping.Unmapped, fireflyID: ""},
+				{status: accountmap.Unmapped, fireflyID: ""},
 			},
 		},
 		{
@@ -160,7 +160,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", Hash: "h8", FireflyAccountID: "999"},
 			},
 			want: []wantOverride{
-				{status: mapping.Unmapped, fireflyID: "", detail: "override target #999 not found"},
+				{status: accountmap.Unmapped, fireflyID: "", detail: "override target #999 not found"},
 			},
 		},
 		{
@@ -173,7 +173,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 				{Bank: "sample-bank", Hash: "h9", FireflyAccountID: "160"},
 			},
 			want: []wantOverride{
-				{status: mapping.Override, fireflyID: "160"},
+				{status: accountmap.Override, fireflyID: "160"},
 			},
 		},
 	}
@@ -182,7 +182,7 @@ func (s *OverrideSuite) TestOverrideAndExclude() {
 		tc := &cases[i]
 
 		s.Run(tc.name, func() {
-			got := mapping.Resolve(tc.bankAccts, tc.fireflyAccts, tc.rules)
+			got := accountmap.Resolve(tc.bankAccts, tc.fireflyAccts, tc.rules)
 
 			s.Require().Len(got, len(tc.want), "one Mapping per bank account")
 

@@ -12,7 +12,8 @@ deterministically (exact amount, ±N days) and sends a plain-text digest of unma
 Telegram and/or email recipients. Exit codes 0, 1 and 2 separate clean, missing-found and check-failed runs.
 Only the Enable Banking session is persisted. The design is stdlib-first: hand-written read-only API clients,
 a GET-only transport guard for Firefly III, and a small, owner-approved set of third-party dependencies
-(YAML, exact decimal arithmetic, CLI parsing). See [research.md](research.md) for every decision.
+(YAML, exact decimal arithmetic, CLI parsing, the HTTP retry loop). See [research.md](research.md) for every
+decision.
 
 ## Technical Context
 
@@ -21,11 +22,15 @@ a GET-only transport guard for Firefly III, and a small, owner-approved set of t
 **Primary Dependencies**:
 - Go standard library: `net/http`, `crypto/rsa` (JWT RS256), `net/smtp` + `crypto/tls`, `log/slog`,
   `encoding/json`.
+- `github.com/avast/retry-go/v5` v5.0.0, the attempt loop and the wait between attempts inside
+  `httpclient.RetryTransport`; every HTTP retry rule stays in our wrapper (R12). Owner approved 2026-09-23.
 - `github.com/goccy/go-yaml` v1.19.x, strict YAML config decoding (R13).
-- `github.com/shopspring/decimal` v1.4.0, exact decimal arithmetic backing `domain.Amount` (R15). Owner
+- `github.com/shopspring/decimal` v1.4.0, exact decimal arithmetic backing `money.Amount` (R15). Owner
   approved 2026-09-22 as an exception to the no-release-before-2025-01-01 rule.
 - `github.com/spf13/cobra`, CLI parsing for `check`/`auth`/`accounts`, in place of `flag.NewFlagSet` (R19).
 - `github.com/stretchr/testify` (suites), test-only (R17).
+- `github.com/jarcoal/httpmock` v1.4.2, per-client `http.RoundTripper` mocks for the HTTP adapter tests,
+  test-only (R17). Owner approved 2026-09-23.
 - `internal/civil` is a trimmed copy of `cloud.google.com/go/civil` v0.123.0's `Date` (Apache-2.0 header
   kept), not a dependency on `cloud.google.com/go` itself (R19).
 - Considered and not adopted: `fatih/color`, `dustin/go-humanize` — the digest is plain text for
@@ -37,8 +42,9 @@ a GET-only transport guard for Firefly III, and a small, owner-approved set of t
 
 **Testing**:
 - `task test` (`go test -race ./...`) with testify suites (one `Test<Package>` entry point per package) and
-  table-driven `s.Run` subtests, `httptest` servers with anonymized fixtures, `testing/synctest`
-  for retry timing, and golden files for the digest.
+  table-driven `s.Run` subtests, per-client `httpmock` transports with anonymized fixtures (`httptest.Server`
+  only in the `internal/app` suites, which run the real clients end to end), `testing/synctest` for retry
+  timing, and golden files for the digest.
 - An optional `live` build tag for smoke tests.
 
 **Target Platform**: Linux server (amd64/arm64), single static binary (`CGO_ENABLED=0`), invoked by cron.
@@ -68,8 +74,8 @@ dominated by provider latency, so accounts are fetched sequentially per bank to 
 | III. Superpowers Workflow & Test-First | Tasks are executed via worktree, TDD, subagent-driven development, code review, finish-branch. | PASS | PASS: tasks.md will be ordered test-first. **Precondition**: the repository must be `git init`-ed before the worktree step. |
 | IV. Provider-Agnostic Bank Integration | The core depends on a `bank.Provider` interface and normalized types. Contract tests use fixtures, with no live calls by default. | PASS | PASS: `bank.Provider` and `bank.Authorizer` interfaces, so `check` and `auth` never import the adapter; `internal/bank/enablebanking` implements both; the `live` tag is opt-in |
 | V. Secrets & Privacy | Secrets come only from env or `*_file`. Redaction in logs and notifications. IBAN masking. `0600` state. Anonymized fixtures. | PASS | PASS: config contract, slog `ReplaceAttr` redactor (R14), masked identifiers in the digest contract |
-| VI. Simple, Unattended Operation | One-shot binary with no scheduler or server, distinct exit codes, fail-fast config, stdlib-first with every dependency justified, slog summary. | PASS | PASS: a small set of justified runtime dependencies — YAML (R13), decimal arithmetic (R15), CLI parsing (R19) — plus a vendored copy, not a dependency, for civil dates (R19); testify is test-only (R17); oapi-codegen rejected (R1) |
-| Constraints | `gofmt`, `go vet`, `go test -race` gates; exact decimals; explicit time zones. | PASS | PASS: `task check` covers all three gates (R17); `domain.Amount` (`shopspring/decimal`) and `civil.Date` (R15) |
+| VI. Simple, Unattended Operation | One-shot binary with no scheduler or server, distinct exit codes, fail-fast config, stdlib-first with every dependency justified, slog summary. | PASS | PASS: a small set of justified runtime dependencies — YAML (R13), decimal arithmetic (R15), CLI parsing (R19), the HTTP retry loop (R12) — plus a vendored copy, not a dependency, for civil dates (R19); testify is test-only (R17); oapi-codegen rejected (R1) |
+| Constraints | `gofmt`, `go vet`, `go test -race` gates; exact decimals; explicit time zones. | PASS | PASS: `task check` covers all three gates (R17); `money.Amount` (`shopspring/decimal`) and `civil.Date` (R15) |
 
 Complexity Tracking records the deviations: TDD exceptions for scaffolding, declaration-only code and
 verification-only tasks, the owner-approved dependency change, and the test-only seams.
@@ -100,17 +106,17 @@ cmd/firefly-jar/
 └── main.go                 # os.Exit(app.Run(os.Args[1:], …)); the cobra command tree lives in internal/app
 
 internal/
-├── domain/                 # Amount (exact decimal, shopspring/decimal), Window (built on internal/civil)
-├── civil/                  # trimmed copy of cloud.google.com/go/civil's Date (no cloud.google.com/go dependency)
+├── money/                  # Amount (exact decimal, shopspring/decimal)
+├── civil/                  # Date (trimmed copy of cloud.google.com/go/civil, no dependency on it); Range, the check window
 ├── config/                 # YAML load (strict), env/file secret resolution, validation
 ├── logging/                # slog multi-handler (file JSON + stderr WARN+), redacting ReplaceAttr
 ├── redact/                 # IBAN masking, secret scrubbing for errors and URLs
-├── httpx/                  # retry RoundTripper (backoff, Retry-After), per-attempt timeout RoundTripper
+├── httpclient/             # *http.Client (no redirects), retry RoundTripper (backoff, Retry-After), per-attempt timeout
 ├── state/                  # state file model, atomic 0600 write, load and validate
 ├── bank/                   # Provider and Authorizer interfaces, BankAccount, BankTransaction, error kinds
 │   └── enablebanking/      # JWT signer, auth flow, accounts/transactions client, normalization
 ├── firefly/                # Account and Entry types (foundational), GET-only transport guard, client (ListAccounts, ListAccountTransactions), page merge, split→entry
-├── mapping/                # bank ↔ Firefly account resolution (IBAN+currency, overrides)
+├── accountmap/             # bank ↔ Firefly account resolution (IBAN+currency, overrides)
 ├── reconcile/              # pure matching: dedup, window, void, greedy pairing
 ├── report/                 # RunReport, delivery results, exit-status and digest-needed rules
 ├── digest/                 # RunReport → plain-text digest (golden-file tested)
@@ -122,7 +128,7 @@ internal/
 testdata/                   # anonymized fixtures (enablebanking/*.json, firefly/*.json), golden digests
 
 Taskfile.yml                # setup, format, format:check, lint, test, build, check, audit, clean
-.mise.toml                  # pinned go, golangci-lint, git-cliff
+.mise.toml                  # pinned go, golangci-lint
 .golangci.yml               # ALREADY PRESENT: the author's standard lint config, verbatim (module path adapted); do not edit
 .pre-commit-config.yaml     # commit-msg: conventional; pre-commit: fmt --diff; pre-push: task check
 .github/workflows/          # ci.yml (task check + govulncheck), commit-lint.yml
@@ -130,16 +136,22 @@ Taskfile.yml                # setup, format, format:check, lint, test, build, ch
 ```
 
 **Structure Decision**: A single Go module with a single binary. `internal/` keeps every package private, and
-dependencies point inward: `app` uses everything; `reconcile`, `mapping` and `digest` depend only on `domain`,
-`bank` types and `firefly` types; adapters depend on `domain`, `httpx` and `redact`. Tests sit next to their
-packages (`_test.go`). Shared fixtures live in `testdata/`.
+dependencies point inward. `money`, `civil`, `config`, `state`, `redact` and `httpclient` import no other
+internal package. `bank` builds its provider types on `money`, `civil`, `config` and `state`. `reconcile`
+depends on `bank`, `civil` and `firefly`; `accountmap` on `bank`, `config` and `firefly`; `report` on
+`accountmap`, `civil` and `reconcile`; `digest` on `accountmap`, `civil`, `config`, `reconcile`, `redact` and
+`report`. The adapters depend on `httpclient` and the types they fill: `firefly` on `civil`, `httpclient` and
+`money`; `bank/enablebanking` on `bank`, `civil`, `config`, `httpclient`, `money`, `redact` and `state`.
+`notify` depends on `digest`, `redact` and `report`; the notifiers on `notify` and `digest` (`email` also on
+`config`); `logging` on `redact`. `app` uses everything. Tests sit next to their packages (`_test.go`). Shared
+fixtures live in `testdata/`.
 
 ## Implementation Notes for Tasks
 
 - **Suggested build order**: repository tooling (Taskfile, mise, pre-commit, CI; `.golangci.yml` already exists) so `task check`
-  runs green on an empty module, then `domain`, then `redact`, `config`, `state`, then `reconcile` and `mapping` (pure
-  logic, the most tests), then `firefly`, `bank/enablebanking` and `httpx`, then `digest`, `notify/*`, then
-  `app`/`cmd`. Every step is red-green-refactor (Principle III).
+  runs green on an empty module, then `money` and `civil`, then `redact`, `config`, `state`, then `reconcile` and
+  `accountmap` (pure logic, the most tests), then `firefly`, `bank/enablebanking` and `httpclient`, then `digest`,
+  `notify/*`, then `app`/`cmd`. Every step is red-green-refactor (Principle III).
 - **User story slices**:
   - US1 (P1): check pipeline plus one notifier.
   - US2 (P2): `auth` and consent states.
@@ -154,9 +166,12 @@ packages (`_test.go`). Shared fixtures live in `testdata/`.
 | Deviation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | T006: `main.go` and `cli.go` stub written without a failing test first (§III step 2) | Scaffolding so `task check` has a buildable module before any test can compile. It has no behavior beyond "print usage, exit 2". | Writing `CLISuite` first needs the testify dependency and suite layout from Phase 2. The stub's behavior is pinned by `CLISuite` in T053 before any real logic lands. |
-| T025: `internal/firefly/types.go` declared without its own test (§III step 2) | Declarations only (`Account`, `Entry`) with no methods or behavior. It unblocks `mapping` and `reconcile` to run in parallel with the Firefly client. | A test of plain struct fields asserts nothing. The types are exercised test-first by T034, T035, T037 and T039. |
+| T025: `internal/firefly/types.go` declared without its own test (§III step 2) | Declarations only (`Account`, `Entry`) with no methods or behavior. It unblocks `accountmap` and `reconcile` to run in parallel with the Firefly client. | A test of plain struct fields asserts nothing. The types are exercised test-first by T034, T035, T037 and T039. |
 | T074, T075, T076: no RED phase observed (§III step 2). `FailFastSuite` (T074) and the US4 acceptance suite (T076) passed on arrival, and T075 ("make T074 pass") changed no production code | The fail-fast ordering, delivery fallback and per-bank isolation they pin were already built test-first by earlier tasks (T070–T073 and Phases 3–5). T074 proved each case's sensitivity by mutating the production code, seeing the case fail, and reverting | Deleting working code to stage an artificial RED would add risk and prove nothing the mutation check did not. The suites stay as regression pins |
 | T081: coverage tests added after the code they cover (§III step 2) | `bank.Status.String` and several `state` Load/Save error paths had no test. T081's 80% coverage target called for tests over existing behaviour, with no production change | Rewriting the covered code to stage a RED would change nothing a reviewer could observe. The new tests pin the existing behaviour |
-| Dependency set widened after planning, owner-approved 2026-09-22 (§VI, justification in Technical Context, R15, R19) | `github.com/shopspring/decimal` v1.4.0 backs `domain.Amount`, a named exception to the no-release-before-2025-01-01 rule. `github.com/spf13/cobra` parses the CLI and brings `github.com/spf13/pflag` and `github.com/inconshreveable/mousetrap` in as indirect dependencies. `internal/civil` is a trimmed copy of `cloud.google.com/go/civil`'s `Date` with its Apache-2.0 header kept. `go.yaml.in/yaml/v3` is an indirect, test-only dependency of testify | The original stdlib-plus-go-yaml plan had a hand-rolled minor-units/scale `Amount`, a hand-rolled date type and `flag.NewFlagSet` subcommands. That meant bespoke decimal normalization, rounding and date arithmetic, which well-tested libraries already provide |
+| Dependency set widened after planning, owner-approved 2026-09-22 (§VI, justification in Technical Context, R15, R19) | `github.com/shopspring/decimal` v1.4.0 backs `money.Amount`, a named exception to the no-release-before-2025-01-01 rule. `github.com/spf13/cobra` parses the CLI and brings `github.com/spf13/pflag` and `github.com/inconshreveable/mousetrap` in as indirect dependencies. `internal/civil` is a trimmed copy of `cloud.google.com/go/civil`'s `Date` with its Apache-2.0 header kept. `go.yaml.in/yaml/v3` is an indirect, test-only dependency of testify | The original stdlib-plus-go-yaml plan had a hand-rolled minor-units/scale `Amount`, a hand-rolled date type and `flag.NewFlagSet` subcommands. That meant bespoke decimal normalization, rounding and date arithmetic, which well-tested libraries already provide |
+| Dependency set widened again after release, owner-approved 2026-09-23 (§VI, R12) | `github.com/avast/retry-go/v5` v5.0.0 runs the attempt loop and the wait inside `httpclient.RetryTransport`. It has no runtime dependencies. The HTTP rules (what is retried, the delay and ±20% jitter, the Retry-After cap, draining, handing back the last response) stay in our wrapper, and the existing synctest suites pin them unchanged | The hand-written loop worked and used only the stdlib. The owner chose a maintained library for the loop. `hashicorp/go-retryablehttp` was rejected because its defaults conflict with the invariants, it pulls in a 2021 dependency, and it is MPL-2.0 (R12) |
+| Test-only dependency added after release, owner-approved 2026-09-23 (§VI, R17) | `github.com/jarcoal/httpmock` v1.4.2 gives each HTTP adapter test its own mock `http.RoundTripper`, with scripted responders and call counting, and it runs inside `testing/synctest` bubbles. The package imports only the standard library. Its own test dependencies, `github.com/maxatome/go-testdeep` and `github.com/davecgh/go-spew`, appear only in `go.sum` and are never compiled into this module's build or test binaries | `httptest.Server` plus hand-written fake `http.RoundTripper`s used only the stdlib, but every package repeated its own scripting and counting code, and a server cannot run inside a synctest bubble. `internal/app` keeps `httptest.Server`, where a real listener is the point (R17) |
+| The post-release backlog was worked directly on `main`, without a worktree (§III workflow). The retry-loop migration also ran without subagent-driven execution | The owner explicitly asked for the post-release backlog to be done on `main` | A worktree and feature branch per task would only have added merge steps to small, sequential changes. Each task was still one reviewed commit that passed `task check`, so the history stays reviewable task by task |
 | fj-xwu.15: package `app`'s `TestApp` is declared twice, in `app_test.go` (`//go:build !live`) and `app_live_test.go` (`//go:build live`, the same `suite.Run` lines plus `LiveSuite`) | `LiveSuite` must stay behind the `live` tag, out of `task check`, while each build keeps exactly one `Test<Package>` that only calls `suite.Run` (`.claude/CLAUDE.md` Testing rules 1 and 2) | A second `TestAppLive` entry point broke rule 1 under the `live` tag, and a build-tagged helper returning the suite list would put a non-`suite.Run` call in the entry point, breaking rule 2. The cost is 14 duplicated `suite.Run` lines to keep in sync |
 | T077, T078: test-only seams on `app.Env` (`TelegramBaseURL`, `SMTPTLSConfig`, `SMTPAddr`, `EnableBankingBaseURL`) and `email.Notifier.WithAddr` (§VI YAGNI) | The privacy and read-only suites drive the real Telegram, email and Enable Banking clients against in-process fakes. Config validation allows only SMTP ports 587 and 465, which a fake server cannot bind | `app.Run`, the only entry point `main` uses, leaves every seam at its zero value, and no config key, env var or flag reaches them. Substituting a fake `Provider` or `Notifier` instead would leave the real clients' request bodies and headers unchecked |

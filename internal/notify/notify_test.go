@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"testing"
 
 	"github.com/stretchr/testify/suite"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/report"
 )
+
+// TestNotify is the single entry point for package notify's test suites.
+func TestNotify(t *testing.T) {
+	suite.Run(t, new(FanOutSuite))
+}
 
 // ctxKey is a unique type for the marker value TestFanOutPassesContextThroughToSend stashes on its
 // context, so FanOut passing the caller's ctx unchanged through to Send can be observed directly.

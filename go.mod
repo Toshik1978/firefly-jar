@@ -3,7 +3,9 @@ module github.com/Toshik1978/firefly-jar
 go 1.27.1
 
 require (
+	github.com/avast/retry-go/v5 v5.0.0
 	github.com/goccy/go-yaml v1.19.2
+	github.com/jarcoal/httpmock v1.4.2
 	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1

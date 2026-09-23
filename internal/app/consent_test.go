@@ -92,7 +92,7 @@ func (p *consentProvider) hasCallFor(uid string) bool {
 }
 
 // consentFireflyAccount is one Firefly III asset account the fake accounts endpoint serves, enough
-// to let a bank account with the same IBAN and currency map automatically (internal/mapping).
+// to let a bank account with the same IBAN and currency map automatically (internal/accountmap).
 type consentFireflyAccount struct {
 	id       string
 	iban     string

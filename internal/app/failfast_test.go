@@ -19,7 +19,7 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/app"
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
@@ -525,7 +525,7 @@ func newFFHarness(t *testing.T, vilnius *time.Location, mutate func(dir string, 
 		filepath.Join(dir, "config.yaml"), []byte(ffConfigYAML(paths)), cliSecretFileMode,
 	))
 
-	amount, err := domain.ParseAmount("-12.40", "EUR")
+	amount, err := money.ParseAmount("-12.40", "EUR")
 	require.NoError(t, err)
 
 	txDate, err := civil.ParseDate("2026-09-20")

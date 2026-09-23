@@ -1,7 +1,7 @@
 // Package telegram delivers a digest through the Telegram Bot API's sendMessage method as plain
 // text (research R9). A digest longer than one message is split at line boundaries, parts to one
 // chat are paced, and the notifier owns its retry policy, because sendMessage is a POST that the
-// shared httpx transport never retries and Telegram signals flood control in the body, not in a
+// shared httpclient transport never retries and Telegram signals flood control in the body, not in a
 // Retry-After header.
 package telegram
 

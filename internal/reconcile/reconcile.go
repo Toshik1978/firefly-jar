@@ -16,7 +16,6 @@ import (
 
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
 )
 
@@ -51,7 +50,7 @@ type Missing struct {
 // remaining transaction greedily, in the Result order, with the earliest unused entry of exactly
 // the same signed amount and currency whose date lies within tolerance days. Every transaction left
 // unpaired is reported as Missing.
-func Reconcile(txs []bank.Transaction, entries []firefly.Entry, tolerance int, w domain.Window) Result {
+func Reconcile(txs []bank.Transaction, entries []firefly.Entry, tolerance int, w civil.Range) Result {
 	var res Result
 
 	active := res.screen(txs, w)
@@ -88,7 +87,7 @@ func Reconcile(txs []bank.Transaction, entries []firefly.Entry, tolerance int, w
 // screen applies steps 1 and 2 to a copy of txs: it keeps the transactions dated in w, counts and
 // sets aside void ones, and counts and drops each pending copy that shares a non-empty EntryRef
 // with a booked transaction also in w (research R6). It returns what is left to match.
-func (r *Result) screen(txs []bank.Transaction, w domain.Window) []bank.Transaction {
+func (r *Result) screen(txs []bank.Transaction, w civil.Range) []bank.Transaction {
 	inWindow := make([]bank.Transaction, 0, len(txs))
 
 	for i := range txs {
@@ -151,7 +150,7 @@ type slot struct {
 	paired bool
 }
 
-// buckets groups the Firefly III entries by domain.Amount.Key (currency plus normalized signed
+// buckets groups the Firefly III entries by money.Amount.Key (currency plus normalized signed
 // value, step 3), each bucket ordered by Date and then GroupID (step 4). Only a transaction with
 // exactly the same key can ever match or be hinted to an entry.
 type buckets map[string][]*slot

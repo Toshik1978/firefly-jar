@@ -18,6 +18,12 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/config"
 )
 
+// TestConfig is the single entry point for package config's test suites.
+func TestConfig(t *testing.T) {
+	suite.Run(t, new(LoadSuite))
+	suite.Run(t, new(ValidateSuite))
+}
+
 // noEnv is an env lookup that never has anything set, for tests that do not exercise env-var secret
 // overrides.
 func noEnv(string) string { return "" }

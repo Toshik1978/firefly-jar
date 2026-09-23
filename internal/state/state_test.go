@@ -12,6 +12,11 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
 
+// TestState is the single entry point for package state's test suites.
+func TestState(t *testing.T) {
+	suite.Run(t, new(StateSuite))
+}
+
 // copyFixtureFile copies testdata/state/name into a fresh t.TempDir() under the same base name, so
 // tests can chmod or overwrite their own copy without ever mutating the shared fixture.
 func copyFixtureFile(t *testing.T, name string) string {

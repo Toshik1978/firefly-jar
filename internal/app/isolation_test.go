@@ -19,9 +19,9 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
 	"github.com/Toshik1978/firefly-jar/internal/config"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
 	"github.com/Toshik1978/firefly-jar/internal/logging"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/report"
@@ -743,7 +743,7 @@ func (s *IsolationSuite) bankTx(date, amount, ref, description string) bank.Tran
 	d, err := civil.ParseDate(date)
 	s.Require().NoError(err)
 
-	value, err := domain.ParseAmount(amount, "EUR")
+	value, err := money.ParseAmount(amount, "EUR")
 	s.Require().NoError(err)
 
 	return bank.Transaction{

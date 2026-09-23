@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,12 +15,18 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/Toshik1978/firefly-jar/internal/digest"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/notify/telegram"
 )
+
+// TestTelegram is the single entry point for package telegram's test suites.
+func TestTelegram(t *testing.T) {
+	suite.Run(t, new(TelegramSuite))
+}
 
 const (
 	// testToken is shaped like a real bot token so the secrecy cases catch it leaking through a
@@ -48,7 +53,7 @@ const (
 	okBody = `{"ok":true,"result":{"message_id":1}}`
 )
 
-// reply is one scripted outcome of fakeTelegram: a network error, or a status and body.
+// reply is one scripted outcome of newScriptedTransport: a network error, or a status and body.
 type reply struct {
 	err    error
 	body   string
@@ -83,7 +88,8 @@ func networkReply() reply {
 	return reply{err: errors.New("read: connection reset by peer")}
 }
 
-// sentMessage is one sendMessage call fakeTelegram received, stamped with the bubble's fake time.
+// sentMessage is one sendMessage call the scripted transport received, stamped with the bubble's
+// fake time.
 type sentMessage struct {
 	at     time.Time
 	url    string
@@ -91,73 +97,82 @@ type sentMessage struct {
 	chatID int64
 }
 
-// fakeTelegram is an in-process, synctest-safe stand-in for the Bot API (.claude/CLAUDE.md: no
-// httptest.Server and no sockets inside a synctest bubble). Replies are scripted per chat id, in
-// order, so the cases hold whether the notifier walks chats one after another or concurrently;
-// a chat whose script has run out gets a plain success.
-type fakeTelegram struct {
-	script map[int64][]reply
-	calls  map[int64]int
-	sent   []sentMessage
-	mu     sync.Mutex
-}
+// newScriptedTransport returns an httpmock.MockTransport that answers POST endpoint the way the
+// Bot API would: replies are scripted per chat id, in order (idx into script[chatID]), so the
+// cases hold whether the notifier walks chats one after another or concurrently, and a chat whose
+// script has run out gets a plain success. Per-client httpmock.NewMockTransport, never
+// httpmock.Activate/http.DefaultTransport, so tests stay parallel-safe; it works inside a
+// testing/synctest bubble because it is in-process and opens no sockets. snapshot returns every
+// request recorded so far, each stamped with time.Now() at the moment the responder ran, for the
+// pacing and retry-timing assertions. When the request's context can end, httpmock runs the
+// responder on a goroutine of its own and RoundTrip can return before that goroutine has recorded
+// the request, so a case whose context may end while a request is in flight reads snapshot only
+// after synctest.Wait().
+func newScriptedTransport(endpoint string, script map[int64][]reply) (
+	transport *httpmock.MockTransport, snapshot func() []sentMessage,
+) {
+	transport = httpmock.NewMockTransport()
 
-func newFakeTelegram(script map[int64][]reply) *fakeTelegram {
-	return &fakeTelegram{script: script, calls: make(map[int64]int)}
-}
+	var (
+		mu    sync.Mutex
+		sent  []sentMessage
+		calls = make(map[int64]int)
+	)
 
-func (f *fakeTelegram) RoundTrip(req *http.Request) (*http.Response, error) {
-	raw, err := io.ReadAll(req.Body)
-	_ = req.Body.Close()
+	transport.RegisterResponder(http.MethodPost, endpoint, func(req *http.Request) (*http.Response, error) {
+		raw, err := io.ReadAll(req.Body)
+		_ = req.Body.Close()
 
-	if err != nil {
-		return nil, fmt.Errorf("fake telegram: read body: %w", err)
-	}
+		if err != nil {
+			return nil, fmt.Errorf("fake telegram: read body: %w", err)
+		}
 
-	var payload struct {
-		Text   string `json:"text"`
-		ChatID int64  `json:"chat_id"`
-	}
+		var payload struct {
+			Text   string `json:"text"`
+			ChatID int64  `json:"chat_id"`
+		}
 
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("fake telegram: decode body: %w", err)
-	}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return nil, fmt.Errorf("fake telegram: decode body: %w", err)
+		}
 
-	f.mu.Lock()
-	f.sent = append(f.sent, sentMessage{
-		at:     time.Now(),
-		url:    req.URL.String(),
-		text:   payload.Text,
-		chatID: payload.ChatID,
+		mu.Lock()
+		defer mu.Unlock()
+
+		sent = append(sent, sentMessage{
+			at:     time.Now(),
+			url:    req.URL.String(),
+			text:   payload.Text,
+			chatID: payload.ChatID,
+		})
+
+		idx := calls[payload.ChatID]
+		calls[payload.ChatID]++
+
+		next := okReply()
+		if s := script[payload.ChatID]; idx < len(s) {
+			next = s[idx]
+		}
+
+		if next.err != nil {
+			return nil, next.err
+		}
+
+		return &http.Response{
+			Status:     strconv.Itoa(next.status),
+			StatusCode: next.status,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(next.body)),
+			Request:    req,
+		}, nil
 	})
 
-	idx := f.calls[payload.ChatID]
-	f.calls[payload.ChatID]++
+	return transport, func() []sentMessage {
+		mu.Lock()
+		defer mu.Unlock()
 
-	next := okReply()
-	if script := f.script[payload.ChatID]; idx < len(script) {
-		next = script[idx]
+		return append([]sentMessage(nil), sent...)
 	}
-	f.mu.Unlock()
-
-	if next.err != nil {
-		return nil, next.err
-	}
-
-	return &http.Response{
-		Status:     strconv.Itoa(next.status),
-		StatusCode: next.status,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(next.body)),
-		Request:    req,
-	}, nil
-}
-
-func (f *fakeTelegram) snapshot() []sentMessage {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return append([]sentMessage(nil), f.sent...)
 }
 
 // sendOutcome is everything one Send inside a bubble produced, as plain values, so a case can
@@ -226,10 +241,10 @@ func joinLines(lines []string) string {
 // part starts with the header line unchanged; part k of n (k >= 2) starts with the header line
 // plus " (k/n)", and that suffix counts toward the part's limit.
 //
-// Request-shape and 4xx secrecy cases run against httptest. Every case that waits (pacing
-// between parts, retries) or sends several parts runs inside a testing/synctest bubble against
-// fakeTelegram injected through the *http.Client, so no case sleeps for real. synctest.Test takes
-// its own *testing.T, so bubbles only collect plain values and the suite asserts afterwards.
+// Every case runs against a per-client httpmock transport injected through the *http.Client. Every
+// case that waits (pacing between parts, retries) or sends several parts runs inside a
+// testing/synctest bubble against newScriptedTransport, so no case sleeps for real. synctest.Test
+// takes its own *testing.T, so bubbles only collect plain values and the suite asserts afterwards.
 type TelegramSuite struct {
 	suite.Suite
 }
@@ -253,29 +268,31 @@ func (s *TelegramSuite) TestRequestShape() {
 		reqs []captured
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+	endpoint := fakeBaseURL + "/bot" + testToken + "/sendMessage"
+
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodPost, endpoint, func(req *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(req.Body)
 
 		mu.Lock()
 		reqs = append(reqs, captured{
-			method:      r.Method,
-			path:        r.URL.Path,
-			contentType: r.Header.Get("Content-Type"),
+			method:      req.Method,
+			path:        req.URL.Path,
+			contentType: req.Header.Get("Content-Type"),
 			body:        body,
 		})
 		mu.Unlock()
 
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, okBody)
-	}))
-	defer server.Close()
+		return httpmock.NewStringResponse(http.StatusOK, okBody), nil
+	})
 
 	d := makeDigest(
 		"firefly-jar: 1 missing, 0 unchecked accounts (window 2026-08-24 – 2026-09-22)",
 		[]string{"", "Missing in Firefly III", "- 2026-09-21  -4.50 EUR  COFFEE SHOP  ⏳ pending"},
 	)
 
-	results := telegram.New(testToken, []int64{chatA}, server.Client(), server.URL).Send(s.T().Context(), d)
+	client := &http.Client{Transport: transport}
+	results := telegram.New(testToken, []int64{chatA}, client, fakeBaseURL).Send(s.T().Context(), d)
 
 	s.Require().Len(results, 1)
 	s.Equal(strconv.FormatInt(chatA, 10), results[0].Recipient)
@@ -314,17 +331,18 @@ func (s *TelegramSuite) TestRequestShape() {
 }
 
 func (s *TelegramSuite) TestEmptyBaseURLMeansTheBotAPI() {
-	fake := newFakeTelegram(nil)
-	n := telegram.New(testToken, []int64{chatA}, &http.Client{Transport: fake}, "")
+	endpoint := "https://api.telegram.org/bot" + testToken + "/sendMessage"
+	transport, snapshot := newScriptedTransport(endpoint, nil)
+	n := telegram.New(testToken, []int64{chatA}, &http.Client{Transport: transport}, "")
 
 	results := n.Send(s.T().Context(), makeDigest("firefly-jar: 1 missing", []string{"- line"}))
 
 	s.Require().Len(results, 1)
 	s.Require().NoError(results[0].Err)
 
-	sent := fake.snapshot()
+	sent := snapshot()
 	s.Require().Len(sent, 1)
-	s.Equal("https://api.telegram.org/bot"+testToken+"/sendMessage", sent[0].url)
+	s.Equal(endpoint, sent[0].url)
 }
 
 // TestDigestAtTheLimitIsOneMessage builds a digest of exactly partLimit UTF-16 units, emoji
@@ -671,16 +689,14 @@ func (s *TelegramSuite) TestResultsFollowTheConfiguredChatOrder() {
 func (s *TelegramSuite) TestClientErrorsNeverContainTheBotToken() {
 	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden} {
 		s.Run(strconv.Itoa(status), func() {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = io.Copy(io.Discard, r.Body)
+			endpoint := fakeBaseURL + "/bot" + testToken + "/sendMessage"
+			body := fmt.Sprintf(`{"ok":false,"error_code":%d,"description":"Unauthorized"}`, status)
 
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(status)
-				_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":%d,"description":"Unauthorized"}`, status)
-			}))
-			defer server.Close()
+			transport := httpmock.NewMockTransport()
+			transport.RegisterResponder(http.MethodPost, endpoint, httpmock.NewStringResponder(status, body))
 
-			n := telegram.New(testToken, []int64{chatA}, server.Client(), server.URL)
+			client := &http.Client{Transport: transport}
+			n := telegram.New(testToken, []int64{chatA}, client, fakeBaseURL)
 			results := n.Send(s.T().Context(), s.oneLineDigest())
 
 			s.Require().Len(results, 1)
@@ -716,7 +732,7 @@ func (s *TelegramSuite) TestRetriedFailuresNeverContainTheBotToken() {
 	}
 }
 
-// sendInBubble builds a notifier on fakeTelegram inside a synctest bubble, sends d once and
+// sendInBubble builds a notifier on newScriptedTransport inside a synctest bubble, sends d once and
 // returns what happened. The bubble's fake clock makes every wait instant and exact.
 func (s *TelegramSuite) sendInBubble(script map[int64][]reply, chatIDs []int64, d digest.Digest) sendOutcome {
 	return s.sendInBubbleCancelAfter(script, chatIDs, d, 0)
@@ -730,8 +746,9 @@ func (s *TelegramSuite) sendInBubbleCancelAfter(
 	var out sendOutcome
 
 	synctest.Test(s.T(), func(t *testing.T) {
-		fake := newFakeTelegram(script)
-		n := telegram.New(testToken, chatIDs, &http.Client{Transport: fake}, fakeBaseURL)
+		endpoint := fakeBaseURL + "/bot" + testToken + "/sendMessage"
+		transport, snapshot := newScriptedTransport(endpoint, script)
+		n := telegram.New(testToken, chatIDs, &http.Client{Transport: transport}, fakeBaseURL)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -744,7 +761,7 @@ func (s *TelegramSuite) sendInBubbleCancelAfter(
 		out.start = time.Now()
 		out.results = n.Send(ctx, d)
 		out.elapsed = time.Since(out.start)
-		out.sent = fake.snapshot()
+		out.sent = snapshot()
 	})
 
 	return out

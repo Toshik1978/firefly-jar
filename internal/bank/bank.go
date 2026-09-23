@@ -6,7 +6,7 @@ package bank
 
 import (
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 )
 
 // Account identifies one bank account a provider returned, keyed by the provider's own identifiers
@@ -54,7 +54,7 @@ func (s Status) String() string {
 type Transaction struct {
 	Account     Account
 	Date        civil.Date
-	Amount      domain.Amount
+	Amount      money.Amount
 	Status      Status
 	EntryRef    string
 	Description string

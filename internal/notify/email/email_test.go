@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
@@ -30,6 +31,11 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/digest"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 )
+
+// TestEmail is the single entry point for package email's test suites.
+func TestEmail(t *testing.T) {
+	suite.Run(t, new(EmailSuite))
+}
 
 const (
 	// testHost is the configured SMTP host. The test certificate is issued for it, so a notifier

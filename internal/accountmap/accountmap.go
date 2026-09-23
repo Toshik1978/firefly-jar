@@ -1,8 +1,8 @@
-// Package mapping resolves every bank account the tool sees to a Firefly III asset account, or
+// Package accountmap resolves every bank account the tool sees to a Firefly III asset account, or
 // records why it could not (FR-014, FR-015, FR-016, data-model.md "Mapping"). Resolve applies the
 // two-step resolution order: an explicit accounts: override or exclude rule first, then the
 // automatic IBAN-and-currency match.
-package mapping
+package accountmap
 
 import (
 	"cmp"

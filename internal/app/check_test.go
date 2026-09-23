@@ -21,9 +21,9 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/civil"
 	"github.com/Toshik1978/firefly-jar/internal/config"
 	"github.com/Toshik1978/firefly-jar/internal/digest"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
 	"github.com/Toshik1978/firefly-jar/internal/logging"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/report"
@@ -564,25 +564,25 @@ func (s *CheckSuite) TestWindowIsComputedOnceFromTheInjectedClock() {
 		name       string
 		clock      time.Time
 		windowDays int
-		want       domain.Window
+		want       civil.Range
 	}{
 		{
 			name:       "fixed clock",
 			clock:      time.Date(2026, 9, 22, 10, 0, 0, 0, s.vilnius),
 			windowDays: 30,
-			want:       domain.Window{From: s.date("2026-08-24"), To: s.date("2026-09-22")},
+			want:       civil.Range{From: s.date("2026-08-24"), To: s.date("2026-09-22")},
 		},
 		{
 			name:       "utc instant already tomorrow in vilnius",
 			clock:      time.Date(2026, 9, 22, 21, 30, 0, 0, time.UTC),
 			windowDays: 30,
-			want:       domain.Window{From: s.date("2026-08-25"), To: s.date("2026-09-23")},
+			want:       civil.Range{From: s.date("2026-08-25"), To: s.date("2026-09-23")},
 		},
 		{
 			name:       "configured window length",
 			clock:      time.Date(2026, 9, 22, 10, 0, 0, 0, s.vilnius),
 			windowDays: 7,
-			want:       domain.Window{From: s.date("2026-09-16"), To: s.date("2026-09-22")},
+			want:       civil.Range{From: s.date("2026-09-16"), To: s.date("2026-09-22")},
 		},
 	}
 
@@ -921,7 +921,7 @@ func (s *CheckSuite) mixedHarness() *checkHarness {
 func (s *CheckSuite) bankTx(date, amount string, status bank.Status, ref, description string) bank.Transaction {
 	s.T().Helper()
 
-	value, err := domain.ParseAmount(amount, "EUR")
+	value, err := money.ParseAmount(amount, "EUR")
 	s.Require().NoError(err)
 
 	return bank.Transaction{

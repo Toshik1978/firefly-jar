@@ -7,7 +7,7 @@ import (
 	"net/url"
 
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 )
 
 // datePrefixLen is the length of the YYYY-MM-DD prefix of a Firefly III split date.
@@ -129,13 +129,13 @@ func (c *Client) toEntry(group *groupSplits, accountID, currency string) (Entry,
 // matched will surface as missing (research R8).
 func (c *Client) signedAmount(
 	groupID string, split *splitJSON, accountID, currency string,
-) (domain.Amount, bool, error) {
+) (money.Amount, bool, error) {
 	if !countedType(split.Type) {
-		return domain.Amount{}, false, nil
+		return money.Amount{}, false, nil
 	}
 
 	if split.SourceID != accountID && split.DestinationID != accountID {
-		return domain.Amount{}, false, nil
+		return money.Amount{}, false, nil
 	}
 
 	var raw string
@@ -153,12 +153,12 @@ func (c *Client) signedAmount(
 			"amount", split.Amount,
 		)
 
-		return domain.Amount{}, false, nil
+		return money.Amount{}, false, nil
 	}
 
-	amount, err := domain.ParseAmount(raw, currency)
+	amount, err := money.ParseAmount(raw, currency)
 	if err != nil {
-		return domain.Amount{}, false, fmt.Errorf("group %s: %w", groupID, err)
+		return money.Amount{}, false, fmt.Errorf("group %s: %w", groupID, err)
 	}
 
 	if split.SourceID == accountID {

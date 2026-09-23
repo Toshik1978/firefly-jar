@@ -10,12 +10,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/stretchr/testify/suite"
 
 	"github.com/Toshik1978/firefly-jar/internal/logging"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 )
+
+// TestLogging is the single entry point for package logging's test suites.
+func TestLogging(t *testing.T) {
+	suite.Run(t, new(LoggingSuite))
+}
 
 // LoggingSuite covers logging.New and logging.OpenFile: the file handler writes JSON at the
 // configured level, stderr only ever sees WARN and above as text, and a shared ReplaceAttr

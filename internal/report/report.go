@@ -6,8 +6,8 @@
 package report
 
 import (
-	"github.com/Toshik1978/firefly-jar/internal/domain"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
+	"github.com/Toshik1978/firefly-jar/internal/civil"
 	"github.com/Toshik1978/firefly-jar/internal/reconcile"
 )
 
@@ -15,7 +15,7 @@ import (
 // reconcile result (or why it went unchecked), any run-level problem, any consent warning, and how
 // delivery went.
 type RunReport struct {
-	Window          domain.Window
+	Window          civil.Range
 	Accounts        []AccountResult
 	ConsentWarnings []ConsentWarning
 	Problems        []Problem
@@ -26,7 +26,7 @@ type RunReport struct {
 // reconciliation could not run at all, why (Unchecked is non-nil then and Result does not apply,
 // data-model.md "Run outcome").
 type AccountResult struct {
-	Mapping   mapping.Mapping
+	Mapping   accountmap.Mapping
 	Result    reconcile.Result
 	Unchecked *Unchecked
 }
@@ -86,7 +86,7 @@ func (r RunReport) Summary() Summary {
 		a := &r.Accounts[i]
 
 		switch {
-		case a.Mapping.Status == mapping.Excluded:
+		case a.Mapping.Status == accountmap.Excluded:
 			s.AccountsExcluded++
 		case a.Unchecked != nil:
 			s.AccountsUnchecked++
@@ -118,7 +118,7 @@ func (r RunReport) hasUnchecked() bool {
 func (r RunReport) hasMissing() bool {
 	for i := range r.Accounts {
 		a := &r.Accounts[i]
-		if a.Mapping.Status == mapping.Excluded || a.Unchecked != nil {
+		if a.Mapping.Status == accountmap.Excluded || a.Unchecked != nil {
 			continue
 		}
 

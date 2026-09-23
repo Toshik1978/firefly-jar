@@ -64,7 +64,7 @@ func (r *roRecorder) recorded() []roRequest {
 
 // roEnableBanking is a minimal Enable Banking fake serving GET /accounts/{uid}/transactions: an
 // empty page normally, or a 401 for every account when fail is set, so a case can exercise the
-// bank-error path without a real sleep (401 is never retried by httpx.RetryTransport).
+// bank-error path without a real sleep (401 is never retried by httpclient.RetryTransport).
 type roEnableBanking struct {
 	fail bool
 }

@@ -6,25 +6,30 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/bank/enablebanking"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
-	"github.com/Toshik1978/firefly-jar/internal/httpx"
+	"github.com/Toshik1978/firefly-jar/internal/httpclient"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 )
+
+// enableBankingTestURL is the fixed, unreachable base URL every suite in this package registers
+// its httpmock responders against and passes to New. Requests never leave the process: httpmock
+// intercepts them at the http.RoundTripper each client is built with (per-client
+// httpmock.NewMockTransport, never the global DefaultTransport), so the exact host is arbitrary and
+// shared across suites for consistency.
+const enableBankingTestURL = "http://enablebanking.test"
 
 // fixtureDir holds the anonymized Enable Banking response bodies T028 built (relative to this
 // package directory).
@@ -73,10 +78,7 @@ func (s *TransactionsSuite) newSigner() *enablebanking.Signer {
 	return enablebanking.NewSigner(testAppID, s.key, func() time.Time { return now })
 }
 
-// fixture reads one anonymized testdata file, failing the test immediately if it is missing. It is
-// always called from the suite's own goroutine (never from inside an httptest.Server handler,
-// where a fatal assertion would be unsafe), so every response body a test needs is read up front
-// and only plain byte slices are captured by handler closures.
+// fixture reads one anonymized testdata file, failing the test immediately if it is missing.
 func (s *TransactionsSuite) fixture(name string) []byte {
 	s.T().Helper()
 
@@ -99,38 +101,6 @@ func testAccount(uid string) bank.Account {
 		Currency: "EUR",
 		Name:     "Test Account",
 	}
-}
-
-// writeJSON writes body as a status JSON response, the shape every Enable Banking response in
-// this suite takes (a success page or an ErrorResponse body).
-func writeJSON(w http.ResponseWriter, status int, body []byte) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_, _ = w.Write(body)
-}
-
-// fixedResponseRoundTripper returns the same canned status and Retry-After header for every
-// request, never touching a socket. It exists to drive httpx.RetryTransport's retry-cap decision
-// (an oversized Retry-After fails the request immediately, with no wait) without an
-// httptest.Server and without a real sleep.
-type fixedResponseRoundTripper struct {
-	status     int
-	retryAfter string
-}
-
-// RoundTrip implements http.RoundTripper.
-func (rt *fixedResponseRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	header := make(http.Header)
-	if rt.retryAfter != "" {
-		header.Set("Retry-After", rt.retryAfter)
-	}
-
-	return &http.Response{
-		StatusCode: rt.status,
-		Header:     header,
-		Body:       io.NopCloser(strings.NewReader("")),
-		Request:    req,
-	}, nil
 }
 
 // TestClientSatisfiesBankProviderInterface is a compile-time check that *enablebanking.Client
@@ -160,17 +130,19 @@ func (s *TransactionsSuite) TestTransactionsRequestHasDateFromOnlyBearerAuthAndN
 		gotHeader http.Header
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		gotQuery = r.URL.Query()
-		gotHeader = r.Header.Clone()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/accounts/uid-100/transactions",
+		func(req *http.Request) (*http.Response, error) {
+			gotMethod = req.Method
+			gotPath = req.URL.Path
+			gotQuery = req.URL.Query()
+			gotHeader = req.Header.Clone()
 
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
+			return httpmock.NewBytesResponse(http.StatusOK, body), nil
+		},
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	_, err = client.Transactions(context.Background(), "session-1", acc, from)
 	s.Require().NoError(err)
@@ -212,26 +184,28 @@ func (s *TransactionsSuite) TestTransactionsMapsFlatPagesEveryEntryAndFollowsPag
 
 	var seenKeys []string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := r.URL.Query().Get("continuation_key")
-		seenKeys = append(seenKeys, key)
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/accounts/uid-200/transactions",
+		func(req *http.Request) (*http.Response, error) {
+			key := req.URL.Query().Get("continuation_key")
+			seenKeys = append(seenKeys, key)
 
-		switch key {
-		case "":
-			writeJSON(w, http.StatusOK, p1)
-		case "k2":
-			writeJSON(w, http.StatusOK, p2Empty)
-		case "k3":
-			writeJSON(w, http.StatusOK, p3)
-		default:
-			// Safety net only: an unexpected key must never hang the client in a retry loop.
-			// The seenKeys assertion below is what actually fails the test in that case.
-			writeJSON(w, http.StatusOK, terminal)
-		}
-	}))
-	defer server.Close()
+			switch key {
+			case "":
+				return httpmock.NewBytesResponse(http.StatusOK, p1), nil
+			case "k2":
+				return httpmock.NewBytesResponse(http.StatusOK, p2Empty), nil
+			case "k3":
+				return httpmock.NewBytesResponse(http.StatusOK, p3), nil
+			default:
+				// Safety net only: an unexpected key must never hang the client in a retry loop.
+				// The seenKeys assertion below is what actually fails the test in that case.
+				return httpmock.NewBytesResponse(http.StatusOK, terminal), nil
+			}
+		},
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	got, err := client.Transactions(context.Background(), "session-1", acc, from)
 	s.Require().NoError(err)
@@ -272,7 +246,7 @@ func (s *TransactionsSuite) TestTransactionsMapsFlatPagesEveryEntryAndFollowsPag
 			s.Equal(w.status, tx.Status)
 			s.Equal(w.date, tx.Date)
 
-			wantAmount, err := domain.ParseAmount(w.amount, "EUR")
+			wantAmount, err := money.ParseAmount(w.amount, "EUR")
 			s.Require().NoError(err)
 			s.True(
 				tx.Amount.Equal(wantAmount),
@@ -298,22 +272,19 @@ func (s *TransactionsSuite) TestTransactionsPaginationCapAt100PagesReturnsErrDat
 
 	page := []byte(`{"transactions":[],"continuation_key":"next"}`)
 
-	var calls atomic.Int32
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/accounts/uid-300/transactions",
+		httpmock.NewBytesResponder(http.StatusOK, page),
+	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		writeJSON(w, http.StatusOK, page)
-	}))
-	defer server.Close()
-
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	got, err := client.Transactions(context.Background(), "session-1", acc, from)
 
 	s.Require().Error(err)
 	s.Require().ErrorIs(err, bank.ErrDataIncomplete)
 	s.Empty(got)
-	s.Equal(int32(paginationCap), calls.Load(), "must give up after exactly the 100-page cap (research R5)")
+	s.Equal(paginationCap, transport.GetTotalCallCount(), "must give up after exactly the 100-page cap (research R5)")
 }
 
 // TestTransactionsParsesGroupedResponseShape asserts the grouped
@@ -326,12 +297,12 @@ func (s *TransactionsSuite) TestTransactionsParsesGroupedResponseShape() {
 
 	body := s.fixture("tx_grouped.json")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/accounts/uid-400/transactions",
+		httpmock.NewBytesResponder(http.StatusOK, body),
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	got, err := client.Transactions(context.Background(), "session-1", acc, from)
 	s.Require().NoError(err)
@@ -342,7 +313,7 @@ func (s *TransactionsSuite) TestTransactionsParsesGroupedResponseShape() {
 	s.Equal(bank.Booked, booked.Status)
 	s.Equal(civil.Date{Year: 2026, Month: time.September, Day: 15}, booked.Date)
 
-	wantBookedAmount, err := domain.ParseAmount("-3.30", "EUR")
+	wantBookedAmount, err := money.ParseAmount("-3.30", "EUR")
 	s.Require().NoError(err)
 	s.True(booked.Amount.Equal(wantBookedAmount))
 	s.Equal("Coffee Shop", booked.Description)
@@ -352,7 +323,7 @@ func (s *TransactionsSuite) TestTransactionsParsesGroupedResponseShape() {
 	s.Equal(bank.Pending, pending.Status)
 	s.Equal(civil.Date{Year: 2026, Month: time.September, Day: 16}, pending.Date)
 
-	wantPendingAmount, err := domain.ParseAmount("-8.80", "EUR")
+	wantPendingAmount, err := money.ParseAmount("-8.80", "EUR")
 	s.Require().NoError(err)
 	s.True(pending.Amount.Equal(wantPendingAmount))
 	s.Equal("Grocery Store", pending.Description)
@@ -368,12 +339,12 @@ func (s *TransactionsSuite) TestTransactionsMissingAllDateFieldsReturnsErrDataIn
 
 	body := s.fixture("tx_nodate.json")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/accounts/uid-500/transactions",
+		httpmock.NewBytesResponder(http.StatusOK, body),
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	got, err := client.Transactions(context.Background(), "session-1", acc, from)
 	s.Require().Error(err)
@@ -404,12 +375,12 @@ func (s *TransactionsSuite) TestTransactionsErrorBodyMapsToSentinel() {
 			signer := s.newSigner()
 			body := s.fixture(tc.fixture)
 
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				writeJSON(w, tc.status, body)
-			}))
-			defer server.Close()
+			transport := httpmock.NewMockTransport()
+			transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/accounts/uid-err/transactions",
+				httpmock.NewBytesResponder(tc.status, body),
+			)
 
-			client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+			client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 			got, err := client.Transactions(context.Background(), "session-1", acc, from)
 			s.Require().Error(err)
@@ -433,13 +404,13 @@ func (s *TransactionsSuite) TestTransactionsGenericErrorMapsToBankErrorWithRedac
 		`{"message":"access denied for account ` + rawIBAN + `","code":403,"error":"ACCESS_DENIED","detail":"none"}`,
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusForbidden, body)
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/accounts/uid-generic-err/transactions",
+		httpmock.NewBytesResponder(http.StatusForbidden, body),
+	)
 
 	redactor := redact.New()
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redactor)
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redactor)
 
 	got, err := client.Transactions(context.Background(), "session-1", acc, from)
 	s.Require().Error(err)
@@ -456,23 +427,28 @@ func (s *TransactionsSuite) TestTransactionsGenericErrorMapsToBankErrorWithRedac
 }
 
 // TestTransactionsRetryAfterTooLongMapsToErrRateLimited asserts the second half of the T029
-// ruling: when the caller wires the injected *http.Client with an httpx.RetryTransport (the
+// ruling: when the caller wires the injected *http.Client with an httpclient.RetryTransport (the
 // production shape) and a 429 response's Retry-After exceeds the retry cap, http.Client.Do never
-// returns a response at all -- it returns a *httpx.RetryAfterTooLongError -- and Transactions must
-// still map that to bank.ErrRateLimited, exactly like a final 429 body would. The fake
-// RoundTripper never touches a socket, and the oversized Retry-After (120s, over
-// RetryTransport's default 60s MaxWait) makes the error return before any wait, so this needs
-// neither an httptest.Server nor a real sleep.
+// returns a response at all -- it returns a *httpclient.RetryAfterTooLongError -- and Transactions must
+// still map that to bank.ErrRateLimited, exactly like a final 429 body would. The mock transport
+// never touches a socket, and the oversized Retry-After (120s, over RetryTransport's default 60s
+// MaxWait) makes the error return before any wait, so this needs neither a real listener nor a real
+// sleep.
 func (s *TransactionsSuite) TestTransactionsRetryAfterTooLongMapsToErrRateLimited() {
 	acc := testAccount("uid-retry-after")
 	from := civil.Date{Year: 2026, Month: time.September, Day: 1}
 	signer := s.newSigner()
 
-	hc := httpx.NewClient(&httpx.RetryTransport{
-		Base: &fixedResponseRoundTripper{status: http.StatusTooManyRequests, retryAfter: "120"},
-	})
+	transport := httpmock.NewMockTransport()
+	tooManyRequests := httpmock.NewStringResponder(http.StatusTooManyRequests, "").
+		HeaderSet(http.Header{"Retry-After": {"120"}})
+	transport.RegisterResponder(
+		http.MethodGet, enableBankingTestURL+"/accounts/uid-retry-after/transactions", tooManyRequests,
+	)
 
-	client := enablebanking.New("http://enablebanking.test", hc, signer, redact.New())
+	hc := httpclient.NewClient(&httpclient.RetryTransport{Base: transport})
+
+	client := enablebanking.New(enableBankingTestURL, hc, signer, redact.New())
 
 	got, err := client.Transactions(context.Background(), "session-1", acc, from)
 	s.Require().Error(err)

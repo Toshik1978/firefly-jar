@@ -3,15 +3,21 @@ package reconcile_test
 import (
 	"math/rand/v2"
 	"slices"
+	"testing"
 
 	"github.com/stretchr/testify/suite"
 
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 	"github.com/Toshik1978/firefly-jar/internal/reconcile"
 )
+
+// TestReconcile is the single entry point for package reconcile's test suites.
+func TestReconcile(t *testing.T) {
+	suite.Run(t, new(ReconcileSuite))
+}
 
 // defaultTolerance is the configured default (FR-007) and the tolerance the spec scenarios use.
 const defaultTolerance = 3
@@ -40,7 +46,7 @@ const shuffleRuns = 8
 type ReconcileSuite struct {
 	suite.Suite
 
-	window domain.Window
+	window civil.Range
 }
 
 // wantPair is the expected projection of one reconcile.Pair.
@@ -71,7 +77,7 @@ type reconcileCase struct {
 
 // SetupTest fixes the window every case uses: 30 days ending on 2026-09-23, so From is 2026-08-25.
 func (s *ReconcileSuite) SetupTest() {
-	s.window = domain.NewWindow(s.date("2026-09-23"), 30)
+	s.window = civil.NewRange(s.date("2026-09-23"), 30)
 	s.Require().Equal(s.date("2026-08-25"), s.window.From, "window start the cases rely on")
 }
 
@@ -961,8 +967,8 @@ func (s *ReconcileSuite) date(v string) civil.Date {
 }
 
 // amount parses a decimal amount in currency.
-func (s *ReconcileSuite) amount(v, currency string) domain.Amount {
-	a, err := domain.ParseAmount(v, currency)
+func (s *ReconcileSuite) amount(v, currency string) money.Amount {
+	a, err := money.ParseAmount(v, currency)
 	s.Require().NoError(err)
 
 	return a

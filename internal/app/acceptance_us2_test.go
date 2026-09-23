@@ -52,7 +52,7 @@ const (
 )
 
 // us2FireflyAccount is one Firefly III asset account the fake accounts endpoint serves, enough to
-// let a bank account with the same IBAN and currency map automatically (internal/mapping), so a
+// let a bank account with the same IBAN and currency map automatically (internal/accountmap), so a
 // consent scenario is never confused with an unrelated mapping problem.
 type us2FireflyAccount struct {
 	id       string

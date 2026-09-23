@@ -17,7 +17,8 @@
 //   - removed, because nothing in firefly-jar needs them: the Time and DateTime types, Date's
 //     database/sql Value and Scan methods (and the database/sql/driver import), and Date's
 //     AddMonths, AddYears and Weekday methods;
-//   - the package doc comment was rewritten for the Date-only package;
+//   - the package doc comment was rewritten for this trimmed package and gained a paragraph pointing
+//     to Range (range.go), this repository's own addition;
 //   - the "2006-01-02" layout and the 86400 seconds-per-day divisor became the named constants
 //     dateLayout and secondsPerDay;
 //   - ParseDate wraps the time.Parse error with the input, and UnmarshalText wraps ParseDate's
@@ -33,6 +34,9 @@
 // proleptic Gregorian calendar, with no time-of-day or location attached. Compute "today" and any
 // window once per run, in the configured time zone, and pass Date values from there on so day
 // arithmetic never depends on a location again.
+//
+// Range, this repository's own addition in range.go, is the inclusive check window [From, To] of
+// such dates, built once per run from today and the configured window length.
 package civil
 
 import (

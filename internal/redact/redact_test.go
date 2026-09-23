@@ -1,10 +1,17 @@
 package redact_test
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/suite"
 
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 )
+
+// TestRedact is the single entry point for package redact's test suites.
+func TestRedact(t *testing.T) {
+	suite.Run(t, new(RedactorSuite))
+}
 
 // RedactorSuite covers redact.MaskIBAN, redact.MaskHash and the Redactor built by redact.New:
 // masking IBAN- and hash-shaped identifiers, and scrubbing configured secrets and Telegram bot

@@ -9,7 +9,7 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/bank/enablebanking"
 	"github.com/Toshik1978/firefly-jar/internal/config"
 	"github.com/Toshik1978/firefly-jar/internal/firefly"
-	"github.com/Toshik1978/firefly-jar/internal/httpx"
+	"github.com/Toshik1978/firefly-jar/internal/httpclient"
 	"github.com/Toshik1978/firefly-jar/internal/logging"
 	"github.com/Toshik1978/firefly-jar/internal/notify"
 	"github.com/Toshik1978/firefly-jar/internal/notify/email"
@@ -132,11 +132,11 @@ func newLogger(in BuildInput, r *redact.Redactor) (*slog.Logger, func(), error) 
 }
 
 // newEnableBanking builds the Enable Banking client over a retrying HTTP client whose every attempt
-// is time-bounded (httpx.RetryTransport). The base URL is the production API root unless a test set
+// is time-bounded (httpclient.RetryTransport). The base URL is the production API root unless a test set
 // Env.EnableBankingBaseURL, which stays empty outside a test (Env doc comment) so production always
 // calls enablebanking.DefaultBaseURL.
 func newEnableBanking(in BuildInput, r *redact.Redactor) *enablebanking.Client {
-	hc := httpx.NewClient(&httpx.RetryTransport{Base: in.Env.Transport})
+	hc := httpclient.NewClient(&httpclient.RetryTransport{Base: in.Env.Transport})
 	signer := enablebanking.NewSigner(in.Config.EnableBanking.AppID, in.Secrets.PrivateKey, in.Env.Now)
 
 	baseURL := enablebanking.DefaultBaseURL
@@ -162,7 +162,7 @@ func setAuthorizer(deps *Deps, provider string, eb *enablebanking.Client, cfg co
 }
 
 // newNotifiers builds one notifier per configured channel. Telegram gets a client whose every
-// attempt is time-bounded (httpx.TimeoutTransport) but without the shared retry layer, since it
+// attempt is time-bounded (httpclient.TimeoutTransport) but without the shared retry layer, since it
 // handles its own 429 back-off (R12); the retry layer would never retry its POSTs anyway.
 // TelegramBaseURL and the email seams below are always their zero value outside a test (Env doc
 // comment), so production always posts to the public Bot API and dials the configured SMTP host
@@ -171,7 +171,7 @@ func newNotifiers(in BuildInput) []notify.Notifier {
 	var notifiers []notify.Notifier
 
 	if tg := in.Config.Notify.Telegram; tg != nil {
-		hc := httpx.NewClient(&httpx.TimeoutTransport{Base: in.Env.Transport})
+		hc := httpclient.NewClient(&httpclient.TimeoutTransport{Base: in.Env.Transport})
 		notifiers = append(notifiers, telegram.New(in.Secrets.TelegramToken, tg.ChatIDs, hc, in.Env.TelegramBaseURL))
 	}
 

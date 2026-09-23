@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 	"github.com/Toshik1978/firefly-jar/internal/report"
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
@@ -87,9 +87,9 @@ func (r *checkRun) consentWarning(key string, session *state.Session) report.Con
 // consentUnchecked records that m was not checked because its bank's consent is gone. An excluded
 // account stays excluded: the owner asked for it never to be checked or reported, consent or not.
 func (r *checkRun) consentUnchecked(
-	ctx context.Context, m mapping.Mapping, code report.UncheckedCode,
+	ctx context.Context, m accountmap.Mapping, code report.UncheckedCode,
 ) report.AccountResult {
-	if m.Status == mapping.Excluded {
+	if m.Status == accountmap.Excluded {
 		return report.AccountResult{Mapping: m}
 	}
 

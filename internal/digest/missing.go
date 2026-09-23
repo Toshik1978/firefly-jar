@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Toshik1978/firefly-jar/internal/accountmap"
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/mapping"
 	"github.com/Toshik1978/firefly-jar/internal/reconcile"
 )
 
@@ -46,7 +46,7 @@ func (rn *renderer) missingLines(accounts []accountView) []string {
 }
 
 // heading renders `<bank display> · <masked id> · <account name> (<CUR>)`.
-func (rn *renderer) heading(m mapping.Mapping, masked string) string {
+func (rn *renderer) heading(m accountmap.Mapping, masked string) string {
 	return fmt.Sprintf("%s · %s · %s (%s)",
 		rn.bankDisplay(m.Bank.BankKey), masked, Strip(m.Bank.Name), Strip(m.Bank.Currency))
 }

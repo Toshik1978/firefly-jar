@@ -7,19 +7,18 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"time"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/Toshik1978/firefly-jar/internal/bank"
 	"github.com/Toshik1978/firefly-jar/internal/bank/enablebanking"
-	"github.com/Toshik1978/firefly-jar/internal/httpx"
+	"github.com/Toshik1978/firefly-jar/internal/httpclient"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
@@ -131,17 +130,19 @@ func (s *AuthSuite) TestFindASPSPSendsExactQueryBearerAuthAndMatchesNameExactly(
 		gotHeader http.Header
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		gotQuery = r.URL.RawQuery
-		gotHeader = r.Header.Clone()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/aspsps",
+		func(req *http.Request) (*http.Response, error) {
+			gotMethod = req.Method
+			gotPath = req.URL.Path
+			gotQuery = req.URL.RawQuery
+			gotHeader = req.Header.Clone()
 
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
+			return httpmock.NewBytesResponse(http.StatusOK, body), nil
+		},
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	got, err := client.FindASPSP(context.Background(), "Swedbank", "LT", "personal")
 	s.Require().NoError(err)
@@ -166,12 +167,12 @@ func (s *AuthSuite) TestFindASPSPUnknownBankListsCloseNames() {
 	signer := s.newSigner()
 	body := s.fixture("aspsps.json")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, enableBankingTestURL+"/aspsps",
+		httpmock.NewBytesResponder(http.StatusOK, body),
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	_, err := client.FindASPSP(context.Background(), "Swedban", "LT", "personal")
 	s.Require().Error(err)
@@ -195,23 +196,27 @@ func (s *AuthSuite) TestStartAuthPostsExpectedBodyAndReturnsURLAndState() {
 		gotPath   string
 		gotHeader http.Header
 		gotBody   authRequestBody
+		decodeErr error
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		gotHeader = r.Header.Clone()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodPost, enableBankingTestURL+"/auth",
+		func(req *http.Request) (*http.Response, error) {
+			gotMethod = req.Method
+			gotPath = req.URL.Path
+			gotHeader = req.Header.Clone()
 
-		s.NoError(json.NewDecoder(r.Body).Decode(&gotBody))
+			decodeErr = json.NewDecoder(req.Body).Decode(&gotBody)
 
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
+			return httpmock.NewBytesResponse(http.StatusOK, body), nil
+		},
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	got, err := client.StartAuth(context.Background(), aspsp, "https://example.com/eb-callback", "personal", now)
 	s.Require().NoError(err)
+	s.Require().NoError(decodeErr, "the request body must decode as JSON")
 
 	s.Equal(http.MethodPost, gotMethod)
 	s.Equal("/auth", gotPath)
@@ -300,23 +305,27 @@ func (s *AuthSuite) TestCreateSessionPostsCodeAndReturnsSessionExactly() {
 		gotPath   string
 		gotHeader http.Header
 		gotBody   sessionRequestBody
+		decodeErr error
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		gotHeader = r.Header.Clone()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodPost, enableBankingTestURL+"/sessions",
+		func(req *http.Request) (*http.Response, error) {
+			gotMethod = req.Method
+			gotPath = req.URL.Path
+			gotHeader = req.Header.Clone()
 
-		s.NoError(json.NewDecoder(r.Body).Decode(&gotBody))
+			decodeErr = json.NewDecoder(req.Body).Decode(&gotBody)
 
-		writeJSON(w, http.StatusOK, body)
-	}))
-	defer server.Close()
+			return httpmock.NewBytesResponse(http.StatusOK, body), nil
+		},
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	got, err := client.CreateSession(context.Background(), "abc-code", now)
 	s.Require().NoError(err)
+	s.Require().NoError(decodeErr, "the request body must decode as JSON")
 
 	s.Equal(http.MethodPost, gotMethod)
 	s.Equal("/sessions", gotPath)
@@ -349,25 +358,22 @@ func (s *AuthSuite) TestCreateSessionPostsCodeAndReturnsSessionExactly() {
 }
 
 // TestCreateSessionPostIsNotRetriedOn500 asserts the second half of the T058/T059 ruling: POST
-// /sessions is not idempotent, so even wrapped in the production httpx.RetryTransport a 500
+// /sessions is not idempotent, so even wrapped in the production httpclient.RetryTransport a 500
 // response is hit exactly once, never retried like a GET would be.
 func (s *AuthSuite) TestCreateSessionPostIsNotRetriedOn500() {
 	signer := s.newSigner()
 
-	var hits atomic.Int32
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodPost, enableBankingTestURL+"/sessions",
+		httpmock.NewStringResponder(http.StatusInternalServerError, ""),
+	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	hc := httpx.NewClient(&httpx.RetryTransport{Base: http.DefaultTransport})
-	client := enablebanking.New(server.URL, hc, signer, redact.New())
+	hc := httpclient.NewClient(&httpclient.RetryTransport{Base: transport})
+	client := enablebanking.New(enableBankingTestURL, hc, signer, redact.New())
 
 	_, err := client.CreateSession(context.Background(), "abc-code", time.Now())
 	s.Require().Error(err)
-	s.Equal(int32(1), hits.Load(), "a POST must never be retried by httpx.RetryTransport")
+	s.Equal(1, transport.GetTotalCallCount(), "a POST must never be retried by httpclient.RetryTransport")
 }
 
 // TestDeleteSessionSendsDelete asserts DeleteSession sends DELETE /sessions/{id}.
@@ -380,16 +386,19 @@ func (s *AuthSuite) TestDeleteSessionSendsDelete() {
 		gotHeader http.Header
 	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		gotHeader = r.Header.Clone()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(
+		http.MethodDelete, enableBankingTestURL+"/sessions/00000000-0000-0000-0000-000000000002",
+		func(req *http.Request) (*http.Response, error) {
+			gotMethod = req.Method
+			gotPath = req.URL.Path
+			gotHeader = req.Header.Clone()
 
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+			return httpmock.NewStringResponse(http.StatusNoContent, ""), nil
+		},
+	)
 
-	client := enablebanking.New(server.URL, &http.Client{}, signer, redact.New())
+	client := enablebanking.New(enableBankingTestURL, &http.Client{Transport: transport}, signer, redact.New())
 
 	err := client.DeleteSession(context.Background(), "00000000-0000-0000-0000-000000000002")
 	s.Require().NoError(err)

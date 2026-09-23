@@ -1,22 +1,28 @@
-package domain_test
+package money_test
 
 import (
 	"strings"
+	"testing"
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 )
 
-// AmountSuite covers domain.Amount: exact decimal parsing, normalization and the arithmetic and
+// TestMoney is the single entry point for package money's test suites.
+func TestMoney(t *testing.T) {
+	suite.Run(t, new(AmountSuite))
+}
+
+// AmountSuite covers money.Amount: exact decimal parsing, normalization and the arithmetic and
 // formatting helpers built on it.
 type AmountSuite struct {
 	suite.Suite
 }
 
 func (s *AmountSuite) TestParseAmountGivesValue() {
-	got, err := domain.ParseAmount("12.34", "EUR")
+	got, err := money.ParseAmount("12.34", "EUR")
 	s.Require().NoError(err)
 
 	want, err := decimal.NewFromString("12.34")
@@ -27,7 +33,7 @@ func (s *AmountSuite) TestParseAmountGivesValue() {
 }
 
 func (s *AmountSuite) TestParseAmountNegativeIsNegative() {
-	got, err := domain.ParseAmount("-12.40", "EUR")
+	got, err := money.ParseAmount("-12.40", "EUR")
 	s.Require().NoError(err)
 
 	s.Equal(-1, got.Sign())
@@ -35,10 +41,10 @@ func (s *AmountSuite) TestParseAmountNegativeIsNegative() {
 }
 
 func (s *AmountSuite) TestParseAmountNormalizesTrailingFractionalZeros() {
-	long, err := domain.ParseAmount("12.340000000000", "EUR")
+	long, err := money.ParseAmount("12.340000000000", "EUR")
 	s.Require().NoError(err)
 
-	short, err := domain.ParseAmount("12.34", "EUR")
+	short, err := money.ParseAmount("12.34", "EUR")
 	s.Require().NoError(err)
 
 	s.True(long.Equal(short), "normalized values with equal currency must compare equal")
@@ -50,7 +56,7 @@ func (s *AmountSuite) TestParseAmountZeroIsZero() {
 
 	for _, in := range cases {
 		s.Run(in, func() {
-			got, err := domain.ParseAmount(in, "EUR")
+			got, err := money.ParseAmount(in, "EUR")
 			s.Require().NoError(err)
 			s.True(got.IsZero())
 		})
@@ -72,24 +78,24 @@ func (s *AmountSuite) TestParseAmountRejectsInvalidInput() {
 
 	for name, in := range cases {
 		s.Run(name, func() {
-			_, err := domain.ParseAmount(in, "EUR")
+			_, err := money.ParseAmount(in, "EUR")
 			s.Require().Error(err)
 		})
 	}
 }
 
 func (s *AmountSuite) TestEqualFalseWhenCurrencyDiffers() {
-	eur, err := domain.ParseAmount("12.34", "EUR")
+	eur, err := money.ParseAmount("12.34", "EUR")
 	s.Require().NoError(err)
 
-	usd, err := domain.ParseAmount("12.34", "USD")
+	usd, err := money.ParseAmount("12.34", "USD")
 	s.Require().NoError(err)
 
 	s.False(eur.Equal(usd))
 }
 
 func (s *AmountSuite) TestNeg() {
-	got, err := domain.ParseAmount("12.34", "EUR")
+	got, err := money.ParseAmount("12.34", "EUR")
 	s.Require().NoError(err)
 
 	neg := got.Neg()
@@ -100,10 +106,10 @@ func (s *AmountSuite) TestNeg() {
 }
 
 func (s *AmountSuite) TestAbs() {
-	negative, err := domain.ParseAmount("-12.34", "EUR")
+	negative, err := money.ParseAmount("-12.34", "EUR")
 	s.Require().NoError(err)
 
-	positive, err := domain.ParseAmount("12.34", "EUR")
+	positive, err := money.ParseAmount("12.34", "EUR")
 	s.Require().NoError(err)
 
 	s.Equal(1, negative.Abs().Sign())
@@ -112,61 +118,61 @@ func (s *AmountSuite) TestAbs() {
 }
 
 func (s *AmountSuite) TestKeyIdenticalForEqualValueAndCurrency() {
-	long, err := domain.ParseAmount("12.340000000000", "EUR")
+	long, err := money.ParseAmount("12.340000000000", "EUR")
 	s.Require().NoError(err)
 
-	short, err := domain.ParseAmount("12.34", "EUR")
+	short, err := money.ParseAmount("12.34", "EUR")
 	s.Require().NoError(err)
 
 	s.Equal(short.Key(), long.Key())
 }
 
 func (s *AmountSuite) TestKeyDiffersByCurrency() {
-	eur, err := domain.ParseAmount("12.34", "EUR")
+	eur, err := money.ParseAmount("12.34", "EUR")
 	s.Require().NoError(err)
 
-	usd, err := domain.ParseAmount("12.34", "USD")
+	usd, err := money.ParseAmount("12.34", "USD")
 	s.Require().NoError(err)
 
 	s.NotEqual(eur.Key(), usd.Key())
 }
 
 func (s *AmountSuite) TestFormat() {
-	negative, err := domain.ParseAmount("-4.5", "EUR")
+	negative, err := money.ParseAmount("-4.5", "EUR")
 	s.Require().NoError(err)
 	s.Equal("-4.50", negative.Format(2))
 
-	whole, err := domain.ParseAmount("12.00", "EUR")
+	whole, err := money.ParseAmount("12.00", "EUR")
 	s.Require().NoError(err)
 	s.Equal("12", whole.Format(0))
 }
 
 func (s *AmountSuite) TestFormatPadsFractionWithoutOverflowingMinor() {
-	one, err := domain.ParseAmount("1", "EUR")
+	one, err := money.ParseAmount("1", "EUR")
 	s.Require().NoError(err)
 
 	s.Equal("1."+strings.Repeat("0", 20), one.Format(20))
 }
 
 func (s *AmountSuite) TestEqualAndKeyNormalizeUnnormalizedValues() {
-	scaled := domain.Amount{Value: decimal.New(1200, -2), Currency: "EUR"}
-	reduced := domain.Amount{Value: decimal.New(12, 0), Currency: "EUR"}
+	scaled := money.Amount{Value: decimal.New(1200, -2), Currency: "EUR"}
+	reduced := money.Amount{Value: decimal.New(12, 0), Currency: "EUR"}
 
 	s.True(scaled.Equal(reduced), "1200 at scale 2 must equal 12 at scale 0")
 	s.Equal(reduced.Key(), scaled.Key())
 }
 
 func (s *AmountSuite) TestAddSumsAndNormalizes() {
-	a, err := domain.ParseAmount("12.30", "EUR")
+	a, err := money.ParseAmount("12.30", "EUR")
 	s.Require().NoError(err)
 
-	b, err := domain.ParseAmount("0.70", "EUR")
+	b, err := money.ParseAmount("0.70", "EUR")
 	s.Require().NoError(err)
 
 	sum, err := a.Add(b)
 	s.Require().NoError(err)
 
-	want, err := domain.ParseAmount("13", "EUR")
+	want, err := money.ParseAmount("13", "EUR")
 	s.Require().NoError(err)
 
 	s.True(sum.Equal(want))
@@ -174,10 +180,10 @@ func (s *AmountSuite) TestAddSumsAndNormalizes() {
 }
 
 func (s *AmountSuite) TestAddRejectsCurrencyMismatch() {
-	eur, err := domain.ParseAmount("12.30", "EUR")
+	eur, err := money.ParseAmount("12.30", "EUR")
 	s.Require().NoError(err)
 
-	usd, err := domain.ParseAmount("0.70", "USD")
+	usd, err := money.ParseAmount("0.70", "USD")
 	s.Require().NoError(err)
 
 	_, err = eur.Add(usd)

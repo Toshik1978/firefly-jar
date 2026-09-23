@@ -3,15 +3,15 @@
 These are in-memory domain types, except for **BankSession**, which is the only type that is persisted
 (FR-037). The names are indicative. Packages are listed in plan.md.
 
-## Value types (`internal/domain`, `internal/civil`)
+## Value types (`internal/money`, `internal/civil`)
 
-Elsewhere in this document, `Date` means `civil.Date` (`internal/civil`).
+Elsewhere in this document, `Date` means `civil.Date` and `Range` means `civil.Range` (`internal/civil`).
 
 | Type | Fields | Rules |
 |---|---|---|
-| `civil.Date` (`internal/civil`) | `Year int, Month time.Month, Day int` | A civil date in the configured time zone; a trimmed copy of `cloud.google.com/go/civil`'s `Date` (R19), with no dependency on `cloud.google.com/go`. Supports ordering and day arithmetic (`AddDays`, `DaysSince`, the signed day count that replaced the original `domain.Date`'s `DaysBetween`). |
-| `Amount` (`internal/domain`) | `Value decimal.Decimal, Currency string` | Exact decimal, backed by `github.com/shopspring/decimal` (R15), parsed with no float through a grammar check stricter than `decimal.NewFromString` alone. `Equal` compares currency and value; `decimal.Decimal`'s own normalization means `"12.340000000000"` equals `"12.34"`. More than 18 significant digits is rejected (R15). |
-| `Window` (`internal/domain`) | `From civil.Date, To civil.Date` (inclusive) | `From = today − (window_days − 1)` and `To = today` (FR-004). `IsFirstDay(d)` means `d == From` (FR-026). |
+| `civil.Date` (`internal/civil`) | `Year int, Month time.Month, Day int` | A civil date in the configured time zone; a trimmed copy of `cloud.google.com/go/civil`'s `Date` (R19), with no dependency on `cloud.google.com/go`. Supports ordering and day arithmetic (`AddDays`, `DaysSince`, the signed day count that replaced the original hand-rolled date type's `DaysBetween`). |
+| `Amount` (`internal/money`) | `Value decimal.Decimal, Currency string` | Exact decimal, backed by `github.com/shopspring/decimal` (R15), parsed with no float through a grammar check stricter than `decimal.NewFromString` alone. `Equal` compares currency and value; `decimal.Decimal`'s own normalization means `"12.340000000000"` equals `"12.34"`. More than 18 significant digits is rejected (R15). |
+| `civil.Range` (`internal/civil`) | `From civil.Date, To civil.Date` (inclusive) | The check window, this repository's own code beside the upstream `Date` copy: `From = today − (window_days − 1)` and `To = today` (FR-004). `IsFirstDay(d)` means `d == From` (FR-026). |
 
 ## Bank side (`internal/bank`)
 
@@ -91,7 +91,7 @@ type Authorizer interface {
 | `Amount` | Amount | Signed relative to the account, in the account's currency (`amount` or `foreign_amount`). Comparable splits in the group are summed (FR-009, R8). Only `withdrawal`, `deposit` and `transfer` splits count. |
 | `Description` | string | Kept in memory for tests and debugging. **Never logged** (constitution §V). |
 
-## Mapping (`internal/mapping`)
+## Mapping (`internal/accountmap`)
 
 ### AccountMapping
 | Field | Type | Notes |
@@ -113,7 +113,7 @@ type Authorizer interface {
 
 ### Input and output
 ```text
-Reconcile(bankTxs []BankTransaction, entries []FireflyEntry, tolerance int, window Window) → AccountResult
+Reconcile(bankTxs []BankTransaction, entries []FireflyEntry, tolerance int, window Range) → AccountResult
 ```
 
 ### AccountResult
@@ -162,7 +162,7 @@ within 2× the tolerance. It is informational only and never changes a match.
 ### RunReport
 | Field | Type |
 |---|---|
-| `Window` | Window |
+| `Window` | Range |
 | `Accounts` | []AccountResult |
 | `ConsentWarnings` | []{BankKey, ValidUntil, DaysLeft} |
 | `Problems` | []{Scope (bank or firefly), Reason} — failures that are not per-account (e.g. Firefly III unreachable) |

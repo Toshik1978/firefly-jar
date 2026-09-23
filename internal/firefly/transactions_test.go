@@ -5,22 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"testing/synctest"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/Toshik1978/firefly-jar/internal/civil"
-	"github.com/Toshik1978/firefly-jar/internal/domain"
+	"github.com/Toshik1978/firefly-jar/internal/money"
 )
 
 // TransactionsSuite covers (*Client).ListAccountTransactions (T035, FR-006, FR-006a, FR-009,
@@ -42,7 +39,7 @@ import (
 // the IBAN masking rule does not apply and masking it would render every id as asterisks), date
 // (the split's own YYYY-MM-DD date prefix, never re-converted, per the Entry.Date rule) and amount
 // (the split's raw, unparsed `amount` field string, exactly as Firefly sent it, since no
-// domain.Amount can be constructed in the account's currency for an incomparable split) -- and
+// money.Amount can be constructed in the account's currency for an incomparable split) -- and
 // never the split's description, per constitution §V.
 type TransactionsSuite struct {
 	suite.Suite
@@ -71,41 +68,43 @@ func (s *TransactionsSuite) mustDate(str string) civil.Date {
 	return d
 }
 
-// mustAmount parses str as a domain.Amount in currency, failing the test immediately on a
+// mustAmount parses str as a money.Amount in currency, failing the test immediately on a
 // malformed literal.
-func (s *TransactionsSuite) mustAmount(str, currency string) domain.Amount {
+func (s *TransactionsSuite) mustAmount(str, currency string) money.Amount {
 	s.T().Helper()
 
-	a, err := domain.ParseAmount(str, currency)
+	a, err := money.ParseAmount(str, currency)
 	s.Require().NoError(err)
 
 	return a
 }
 
-// pagedTxServer starts an httptest.Server that serves bodies in request order, recording every
-// request's path and query. Any request past len(bodies) gets an empty, meta-less terminal page, so
-// a client that fails to stop at total_pages can never hang the test.
-func (s *TransactionsSuite) pagedTxServer(bodies ...[]byte) (*httptest.Server, *[]string, *[]url.Values) {
+// pagedTxTransport returns an httpmock.MockTransport that answers GET /accounts/1/transactions by
+// serving bodies in request order, recording every request's path and query. Any request past
+// len(bodies) gets an empty, meta-less terminal page, so a client that fails to stop at total_pages
+// can never hang the test.
+func (s *TransactionsSuite) pagedTxTransport(bodies ...[]byte) (*httpmock.MockTransport, *[]string, *[]url.Values) {
 	var paths []string
 
 	queries := make([]url.Values, 0, len(bodies))
 	terminal := []byte(`{"data":[]}`)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
-		queries = append(queries, r.URL.Query())
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts/1/transactions",
+		func(req *http.Request) (*http.Response, error) {
+			paths = append(paths, req.URL.Path)
+			queries = append(queries, req.URL.Query())
 
-		idx := len(queries) - 1
-		if idx < len(bodies) {
-			writeJSON(w, http.StatusOK, bodies[idx])
+			idx := len(queries) - 1
+			if idx < len(bodies) {
+				return httpmock.NewBytesResponse(http.StatusOK, bodies[idx]), nil
+			}
 
-			return
-		}
+			return httpmock.NewBytesResponse(http.StatusOK, terminal), nil
+		},
+	)
 
-		writeJSON(w, http.StatusOK, terminal)
-	}))
-
-	return server, &paths, &queries
+	return transport, &paths, &queries
 }
 
 // capPageBody builds a single-split transactions page reporting total_pages far beyond the
@@ -166,10 +165,9 @@ func (s *TransactionsSuite) TestListAccountTransactionsRequestsExactQueryAndOwnP
 	p1 := s.fixture("acc_tx_p1.json")
 	p2 := s.fixture("acc_tx_p2.json")
 
-	server, paths, queries := s.pagedTxServer(p1, p2)
-	defer server.Close()
+	transport, paths, queries := s.pagedTxTransport(p1, p2)
 
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	start := s.mustDate("2026-09-01")
 	end := s.mustDate("2026-09-23")
@@ -217,13 +215,12 @@ func (s *TransactionsSuite) TestListAccountTransactionsMergesFiltersSignsAndSkip
 	p1 := s.fixture("acc_tx_p1.json")
 	p2 := s.fixture("acc_tx_p2.json")
 
-	server, _, _ := s.pagedTxServer(p1, p2)
-	defer server.Close()
+	transport, _, _ := s.pagedTxTransport(p1, p2)
 
 	var logBuf bytes.Buffer
 
 	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	client := New(server.URL, "token", http.DefaultTransport, WithLogger(logger))
+	client := New(fireflyTestURL, "token", transport, WithLogger(logger))
 
 	got, err := client.ListAccountTransactions(
 		context.Background(), "1", "EUR", s.mustDate("2026-09-01"), s.mustDate("2026-09-23"),
@@ -305,10 +302,9 @@ func (s *TransactionsSuite) TestListAccountTransactionsCountsSplitsWithoutJourna
 		 "amount":"5.000000000000","description":"anonymized","source_id":"1","destination_id":"3000"}
 	]}}]}`)
 
-	server, _, _ := s.pagedTxServer(body)
-	defer server.Close()
+	transport, _, _ := s.pagedTxTransport(body)
 
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	got, err := client.ListAccountTransactions(
 		context.Background(), "1", "EUR", s.mustDate("2026-09-01"), s.mustDate("2026-09-23"),
@@ -329,13 +325,16 @@ func (s *TransactionsSuite) TestListAccountTransactionsCountsSplitsWithoutJourna
 func (s *TransactionsSuite) TestListAccountTransactionsPageCapReturnsErrDataIncomplete() {
 	var hits int
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits++
-		writeJSON(w, http.StatusOK, capPageBody(hits))
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts/1/transactions",
+		func(_ *http.Request) (*http.Response, error) {
+			hits++
 
-	client := New(server.URL, "token", http.DefaultTransport)
+			return httpmock.NewBytesResponse(http.StatusOK, capPageBody(hits)), nil
+		},
+	)
+
+	client := New(fireflyTestURL, "token", transport)
 
 	got, err := client.ListAccountTransactions(
 		context.Background(), "1", "EUR", s.mustDate("2026-09-01"), s.mustDate("2026-09-23"),
@@ -353,12 +352,12 @@ func (s *TransactionsSuite) TestListAccountTransactionsPageCapReturnsErrDataInco
 func (s *TransactionsSuite) TestListAccountTransactionsNotFoundWrapsErrNotFound() {
 	body := s.fixture("err_404.json")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotFound, body)
-	}))
-	defer server.Close()
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts/1/transactions",
+		httpmock.NewBytesResponder(http.StatusNotFound, body),
+	)
 
-	client := New(server.URL, "token", http.DefaultTransport)
+	client := New(fireflyTestURL, "token", transport)
 
 	got, err := client.ListAccountTransactions(
 		context.Background(), "1", "EUR", s.mustDate("2026-09-01"), s.mustDate("2026-09-23"),
@@ -374,18 +373,15 @@ func (s *TransactionsSuite) TestListAccountTransactionsNotFoundWrapsErrNotFound(
 // non-JSON error body must yield an error carrying only the status code, never any part of the raw
 // body, and it must not satisfy any of the specific sentinels since it is neither a 401 nor a 404.
 //
-// A 500 is retried by the httpx.RetryTransport New wires in (1s, 2s, 4s backoff), so the call runs
-// inside a testing/synctest bubble against htmlErrorTransport, an in-process fake base transport:
-// the backoff elapses on the bubble's fake clock instead of real sleeps, and no socket or
-// httptest.Server is used inside the bubble (.claude/CLAUDE.md). Results are collected inside the
-// bubble and asserted with suite methods after synctest.Test returns, since the bubble's own
-// *testing.T is not s.T().
+// A 500 is retried by the httpclient.RetryTransport New wires in (1s, 2s, 4s backoff), so the call runs
+// inside a testing/synctest bubble against htmlErrorTransport, an in-process httpmock transport: the
+// backoff elapses on the bubble's fake clock instead of real sleeps, and no socket or httptest.Server
+// is used inside the bubble (.claude/CLAUDE.md). Results are collected inside the bubble and asserted
+// with suite methods after synctest.Test returns, since the bubble's own *testing.T is not s.T().
 func (s *TransactionsSuite) TestListAccountTransactionsNonJSONErrorBodyReportsStatusCodeOnly() {
 	start := s.mustDate("2026-09-01")
 	end := s.mustDate("2026-09-23")
-	fake := &htmlErrorTransport{
-		body: "<html>Internal Server Error, node: db-primary-07, trace 8f21ac</html>",
-	}
+	transport := htmlErrorTransport("<html>Internal Server Error, node: db-primary-07, trace 8f21ac</html>")
 
 	var (
 		got []Entry
@@ -393,12 +389,12 @@ func (s *TransactionsSuite) TestListAccountTransactionsNonJSONErrorBodyReportsSt
 	)
 
 	synctest.Test(s.T(), func(t *testing.T) {
-		client := New("https://firefly.example.com/api/v1", "token", fake)
+		client := New(fireflyTestURL, "token", transport)
 
 		got, err = client.ListAccountTransactions(t.Context(), "1", "EUR", start, end)
 	})
 
-	s.Equal(int32(4), fake.attempts.Load(), "one attempt plus the retry transport's three retries")
+	s.Equal(4, transport.GetTotalCallCount(), "one attempt plus the retry transport's three retries")
 
 	s.Require().Error(err)
 	s.Empty(got)
@@ -412,21 +408,17 @@ func (s *TransactionsSuite) TestListAccountTransactionsNonJSONErrorBodyReportsSt
 	s.NotContains(err.Error(), "Internal Server Error", "the raw error body must never reach the error message")
 }
 
-// htmlErrorTransport is an in-process, synctest-safe base transport that answers every request
-// with a 500 and a non-JSON HTML body, counting the attempts that reach it.
-type htmlErrorTransport struct {
-	body     string
-	attempts atomic.Int32
-}
+// htmlErrorTransport returns a per-client httpmock.MockTransport that answers the transactions
+// endpoint with a 500 and the non-JSON HTML body. The no-responder counts a request sent anywhere
+// else too: without one, httpmock fails an unmatched request without counting it, and the attempt
+// count would miss it.
+func htmlErrorTransport(body string) *httpmock.MockTransport {
+	transport := httpmock.NewMockTransport()
+	transport.RegisterResponder(http.MethodGet, fireflyTestURL+"/accounts/1/transactions",
+		httpmock.NewStringResponder(http.StatusInternalServerError, body).
+			HeaderSet(http.Header{"Content-Type": {"text/html"}}),
+	)
+	transport.RegisterNoResponder(httpmock.ConnectionFailure)
 
-func (f *htmlErrorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	f.attempts.Add(1)
-
-	return &http.Response{
-		Status:     "500 Internal Server Error",
-		StatusCode: http.StatusInternalServerError,
-		Header:     http.Header{"Content-Type": {"text/html"}},
-		Body:       io.NopCloser(strings.NewReader(f.body)),
-		Request:    req,
-	}, nil
+	return transport
 }
