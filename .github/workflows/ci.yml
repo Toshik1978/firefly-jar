@@ -23,3 +23,147 @@ jobs:
       - run: task test
 
       - run: task audit
+
+  # Publishes coverage.json and tests.json to the badge gist and gates on the coverage floor.
+  # Runs only on push to main: a badge for a pull request's transient commit is not useful, and
+  # this job needs the gist secrets, which pull_request workflows from forks never see anyway.
+  coverage:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      # Secrets cannot be read directly in an `if:` condition; mapping it to a job-level env var
+      # is the documented way to test for its presence.
+      GIST_ID: ${{ secrets.GIST_ID }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v3
+
+      - uses: go-task/setup-task@v2
+
+      # Runs once, with -json events for the test-count badge and coverage instrumentation for
+      # the coverage badge. `|| true` keeps the step (and the badge publish after it) green even
+      # when a test fails; the gate step below still fails the job for that.
+      - name: Run tests with coverage
+        shell: bash
+        run: |
+          go test ./... -covermode=atomic -coverpkg=./... -coverprofile=cover.out -json | tee test.json || true
+
+      - name: Derive coverage and test metrics
+        id: metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          coverage_line=$(go tool cover -func=cover.out | tail -1)
+          if [ -z "${coverage_line}" ]; then
+            echo "::error::cover.out has no total coverage line, refusing to publish" >&2
+            exit 1
+          fi
+          coverage=$(echo "${coverage_line}" | awk '{print $3}' | tr -d '%')
+
+          coverage_color=$(awk -v c="${coverage}" 'BEGIN {
+            if (c < 50) print "red";
+            else if (c < 60) print "orange";
+            else if (c < 70) print "yellow";
+            else if (c < 80) print "yellowgreen";
+            else if (c < 90) print "green";
+            else print "brightgreen";
+          }')
+
+          # Testify suites report one top-level Test per package, so an event needs a Test field
+          # to be a real test result; counting "ok"/"FAIL" package lines would undercount badly.
+          passed=$(jq -s '[.[] | select(has("Test") and .Action == "pass")] | length' test.json)
+          failed=$(jq -s '[.[] | select(has("Test") and .Action == "fail")] | length' test.json)
+          total=$((passed + failed))
+          if [ "${total}" -eq 0 ]; then
+            echo "::error::no test events parsed from test.json, refusing to publish" >&2
+            exit 1
+          fi
+
+          tests_color=green
+          if [ "${failed}" -gt 0 ]; then
+            tests_color=red
+          fi
+
+          {
+            echo "coverage=${coverage}"
+            echo "coverage_message=${coverage}%"
+            echo "coverage_color=${coverage_color}"
+            echo "tests_failed=${failed}"
+            echo "tests_message=${passed} passed, ${failed} failed"
+            echo "tests_color=${tests_color}"
+          } >>"${GITHUB_OUTPUT}"
+
+      # Publishes before gating so a badge always reflects the last completed run, including one
+      # that is about to fail the gate below. Skipped when GIST_ID is unset, so a fork or a repo
+      # without the secrets configured yet stays green instead of failing here.
+      - name: Publish coverage and test badges
+        if: ${{ env.GIST_ID != '' }}
+        uses: actions/github-script@v9
+        env:
+          COVERAGE_MESSAGE: ${{ steps.metrics.outputs.coverage_message }}
+          COVERAGE_COLOR: ${{ steps.metrics.outputs.coverage_color }}
+          TESTS_MESSAGE: ${{ steps.metrics.outputs.tests_message }}
+          TESTS_COLOR: ${{ steps.metrics.outputs.tests_color }}
+        with:
+          github-token: ${{ secrets.GIST_SECRET_TOKEN }}
+          script: |
+            const endpoint = (label, message, color) => JSON.stringify({
+              schemaVersion: 1,
+              label,
+              namedLogo: "go",
+              message,
+              color,
+              cacheSeconds: 180,
+            })
+
+            await github.rest.gists.update({
+              gist_id: process.env.GIST_ID,
+              files: {
+                "coverage.json": {
+                  content: endpoint("coverage", process.env.COVERAGE_MESSAGE, process.env.COVERAGE_COLOR),
+                },
+                "tests.json": {
+                  content: endpoint("tests", process.env.TESTS_MESSAGE, process.env.TESTS_COLOR),
+                },
+              },
+            })
+
+      # The 90% floor lives once, in Taskfile.yml's MIN_COVERAGE var (also read by
+      # `task cover:check`); read it here instead of repeating the number in this workflow.
+      - name: Gate on coverage floor and test failures
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # `|| true` keeps a missing line from tripping pipefail before the explicit check below
+          # can report it.
+          floor_line=$(grep -m1 'MIN_COVERAGE:' Taskfile.yml || true)
+          if [ -z "${floor_line}" ]; then
+            echo "::error::MIN_COVERAGE not found in Taskfile.yml" >&2
+            exit 1
+          fi
+          floor_raw=$(echo "${floor_line}" | sed -E 's/.*MIN_COVERAGE:[[:space:]]*//')
+          # Strip whitespace, then one leading and one trailing quote, so both
+          # `MIN_COVERAGE: 90` and `MIN_COVERAGE: "90"` yield the same bare number.
+          floor=$(echo "${floor_raw}" | tr -d '[:space:]' | sed -E "s/^[\"']//; s/[\"']\$//")
+          if ! [[ "${floor}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::MIN_COVERAGE value '${floor_raw}' in Taskfile.yml is not a number" >&2
+            exit 1
+          fi
+          coverage="${{ steps.metrics.outputs.coverage }}"
+          failed="${{ steps.metrics.outputs.tests_failed }}"
+
+          echo "coverage: ${coverage}% (floor ${floor}%), failed tests: ${failed}"
+
+          status=0
+          if [ "${failed}" -gt 0 ]; then
+            echo "::error::${failed} test(s) failed"
+            status=1
+          fi
+          if ! awk -v c="${coverage}" -v f="${floor}" 'BEGIN { exit !(c + 0 >= f + 0) }'; then
+            echo "::error::coverage ${coverage}% is below the ${floor}% floor"
+            status=1
+          fi
+          exit "${status}"

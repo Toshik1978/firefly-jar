@@ -1,3 +1,7 @@
+[![CI](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml/badge.svg)](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2FToshik1978%2F2e410514833da9aef60d5f9e2f8466b5%2Fraw%2Fcoverage.json)](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2FToshik1978%2F2e410514833da9aef60d5f9e2f8466b5%2Fraw%2Ftests.json)](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml)
+
 # firefly-jar
 
 **AI-driven experiment. Pull requests and issues are not accepted.**

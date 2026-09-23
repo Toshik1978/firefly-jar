@@ -2,6 +2,9 @@ version: "3"
 
 vars:
   BINARY: firefly-jar
+  # The single source of truth for the coverage floor. task cover:check and CI's coverage job
+  # both read this value; it is never repeated anywhere else.
+  MIN_COVERAGE: 90
 
 env:
   CGO_ENABLED: "0"
@@ -56,6 +59,21 @@ tasks:
     desc: Run tests with coverage into cover.out.
     cmds:
       - go test ./... -coverpkg=./... -coverprofile=cover.out
+
+  cover:check:
+    desc: Run tests with coverage and fail if total coverage drops below the floor.
+    cmds:
+      - task: cover
+      - |
+        set -euo pipefail
+        floor="{{.MIN_COVERAGE}}"
+        if ! [[ "${floor}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+          echo "MIN_COVERAGE '${floor}' in Taskfile.yml is missing or not a number" >&2
+          exit 1
+        fi
+        total=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
+        echo "total coverage: ${total}% (floor ${floor}%)"
+        awk -v total="$total" -v floor="${floor}" 'BEGIN { exit !(total + 0 >= floor + 0) }'
 
   clean:
     desc: Remove build artifacts.

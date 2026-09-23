@@ -50,6 +50,7 @@ same checks.
 | `task build` | static binary (`CGO_ENABLED=0`, `-trimpath`) from `./cmd/firefly-jar` |
 | `task audit` | `govulncheck ./...` |
 | `task cover` | `go test ./... -coverpkg=./... -coverprofile=cover.out` |
+| `task cover:check` | `task cover`, then fails if total coverage is below the 90% floor (`MIN_COVERAGE` in `Taskfile.yml`, the only place the number lives) |
 
 Live smoke tests exist only behind the `live` build tag (`go test -tags live …`) and need a real config. They
 are never part of `task check`.
