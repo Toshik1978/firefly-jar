@@ -10,4 +10,5 @@ import (
 func TestMapping(t *testing.T) {
 	suite.Run(t, new(AutoSuite))
 	suite.Run(t, new(StatusSuite))
+	suite.Run(t, new(OverrideSuite))
 }

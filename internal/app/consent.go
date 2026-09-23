@@ -39,28 +39,35 @@ func consentState(session *state.Session, now time.Time, warnDays int) consent {
 	}
 }
 
+// sessionProblem names why key's saved session cannot be used — no session at all, or one that saw
+// no accounts — and how to fix it. Both check (consent.go) and accounts (accounts.go) hit exactly
+// these two cases and report the same fix, so both share this one wording (fix round 1 on
+// fj-xwu.5.4: accounts must not silently drop a bank in either case). ok is false when reason is set,
+// true when the session is safe to use as-is.
+func sessionProblem(session state.Session, ok bool, key string) (string, bool) {
+	switch {
+	case !ok:
+		return "not authorized — run: firefly-jar auth " + key, false
+	case len(session.Accounts) == 0:
+		return "no accounts in the saved session — run: firefly-jar auth " + key, false
+	default:
+		return "", true
+	}
+}
+
 // usableSession returns the bank's saved session, or records a run-level problem and reports false
 // when there is nothing to check: no session at all, or a session that saw no accounts. Both are
 // fixed the same way, by authorizing the bank again, so both carry the same hint.
 func (r *checkRun) usableSession(ctx context.Context, rep *report.RunReport, key string) (*state.Session, bool) {
 	session, ok := r.deps.State.Sessions[key]
 
-	var reason string
-
-	switch {
-	case !ok:
-		reason = "not authorized"
-	case len(session.Accounts) == 0:
-		reason = "no accounts in the saved session"
-	default:
+	reason, usable := sessionProblem(session, ok, key)
+	if usable {
 		return &session, true
 	}
 
 	r.deps.Log.InfoContext(ctx, "bank not checked", "bank", key, "reason", reason)
-	rep.Problems = append(rep.Problems, report.Problem{
-		Scope:  key,
-		Reason: reason + " — run: firefly-jar auth " + key,
-	})
+	rep.Problems = append(rep.Problems, report.Problem{Scope: key, Reason: reason})
 
 	return nil, false
 }

@@ -139,6 +139,19 @@ func (s *AutoSuite) TestSingleBankAccount() {
 			wantCandidate: nil,
 		},
 		{
+			// Carry-over from the T038 review: ids that parse as integers sort numerically, not
+			// lexically, so id "10" is never ordered before id "9".
+			name:        "candidate ids that parse as integers sort numerically, not lexically",
+			bankAccount: newBankAccount("h10", "LT000000000000000010", "EUR"),
+			fireflyAccts: []firefly.Account{
+				newFireflyAccount("10", "LT000000000000000010", "EUR", true),
+				newFireflyAccount("9", "LT000000000000000010", "EUR", true),
+			},
+			wantStatus:    mapping.Ambiguous,
+			wantFireflyID: "",
+			wantCandidate: []string{"9", "10"},
+		},
+		{
 			name:          "a bank account without an IBAN is Unmapped even with a currency match",
 			bankAccount:   newBankAccount("h6", "", "EUR"),
 			fireflyAccts:  []firefly.Account{newFireflyAccount("60", "LT000000000000000006", "EUR", true)},

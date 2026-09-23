@@ -18,12 +18,15 @@ func (r *checkRun) checkAccount(ctx context.Context, sessionID string, m mapping
 	switch {
 	case m.Status == mapping.Excluded:
 		return report.AccountResult{Mapping: m}
+	case m.Status == mapping.Unmapped && m.TargetID != "":
+		// An accounts: override named a Firefly III account id nothing has (data-model.md
+		// "Mapping" resolution order step 1). m.Detail already carries the full sentence for the
+		// accounts command; the digest wants only the bare id, so it is not repeated twice.
+		return r.unchecked(ctx, m, report.OverrideTargetMissing, "#"+m.TargetID)
 	case m.Status == mapping.Unmapped:
 		return r.unchecked(ctx, m, report.Unmapped, "")
 	case m.Status == mapping.Ambiguous:
 		return r.unchecked(ctx, m, report.Ambiguous, "")
-	case m.Firefly == nil:
-		return r.unchecked(ctx, m, report.OverrideTargetMissing, m.Detail)
 	}
 
 	txs, err := r.deps.Provider.Transactions(ctx, sessionID, m.Bank, r.window.From)

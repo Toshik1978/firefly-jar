@@ -648,6 +648,28 @@ func (s *CheckSuite) TestFireflyAccountsAreListedBeforeAnyBankCall() {
 	})
 }
 
+// TestOverrideTargetMissingIsUncheckedWithoutABankCall covers T066's carry-over from the T052
+// review (FR-015, data-model.md "Mapping" resolution order step 1): an accounts: override naming a
+// Firefly III account id nobody has leaves the account Unmapped with a Detail sentence, and
+// checkAccount must turn that into Unchecked OverrideTargetMissing whose Detail is only "#<id>", so
+// the digest never repeats "override target not found" twice. The account costs no bank call
+// because it was never mapped to anything to compare, and the run exits 2.
+func (s *CheckSuite) TestOverrideTargetMissingIsUncheckedWithoutABankCall() {
+	h := s.newHarness(nil, nil)
+	h.cfg.Accounts = []config.AccountRule{
+		{Bank: checkBankKey, Hash: checkAccountHash, FireflyAccountID: "999"},
+	}
+
+	rep, code := h.run(s.T().Context(), app.CheckOptions{})
+
+	s.Equal(2, code)
+	s.Empty(h.provider.recorded(), "an override to a missing Firefly id costs no bank call")
+	s.Require().Len(rep.Accounts, 1)
+	s.Require().NotNil(rep.Accounts[0].Unchecked, "unchecked")
+	s.Equal(report.OverrideTargetMissing, rep.Accounts[0].Unchecked.Code)
+	s.Equal("#999", rep.Accounts[0].Unchecked.Detail)
+}
+
 // TestSummaryIsLoggedOnceAtInfoWithExactCounts covers FR-038 and FR-039: the file log holds exactly
 // one INFO summary record, with the window and every count, over a run that exercises each outcome:
 // matched, missing, a pending copy deduplicated against its booked twin, a void transaction, and an

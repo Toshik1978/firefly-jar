@@ -751,7 +751,7 @@ read-only `accounts [--ids]` command (FR-015, FR-017).
 **Independent Test**: Two bank accounts, one auto-mapped by IBAN and one without an IBAN. `accounts` shows
 `auto` and `unmapped` with exit 2. After adding a `hash` override, both are mapped with exit 0.
 
-- [ ] T065 [P] [US3] Write `OverrideSuite` in `internal/mapping/override_test.go`:
+- [x] T065 [P] [US3] Write `OverrideSuite` in `internal/mapping/override_test.go`:
   - A `hash` rule → `Override` to the given Firefly id.
   - An `iban` rule without `currency` matches all currencies, and one with `currency` only that currency.
   - An `exclude: true` rule → `Excluded`.
@@ -761,9 +761,9 @@ read-only `accounts [--ids]` command (FR-015, FR-017).
   - An override to a non-existent Firefly id → `Unmapped` with detail "override target #N not found"
     (`OverrideTargetMissing`).
   - An override may target an inactive account.
-- [ ] T066 [US3] Implement override resolution in `internal/mapping/mapping.go` (step 1 of the data-model
+- [x] T066 [US3] Implement override resolution in `internal/mapping/mapping.go` (step 1 of the data-model
   resolution order). Make T065 pass along with `AutoSuite`.
-- [ ] T067 [P] [US3] Write `AccountsCommandSuite` in `internal/app/accounts_test.go`:
+- [x] T067 [P] [US3] Write `AccountsCommandSuite` in `internal/app/accounts_test.go`:
   - **Output** follows contracts/cli.md:
     - columns `BANK ACCOUNT NAME CUR STATUS FIREFLY`, with a masked IBAN or `hash:xxxx…xxxx`;
     - status is one of `auto|override|excluded|ambiguous|unmapped`;
@@ -774,9 +774,9 @@ read-only `accounts [--ids]` command (FR-015, FR-017).
     - the state file's mtime and bytes are unchanged;
     - the Firefly fake records only GETs;
     - no bank transaction fetch happens, because accounts come from the state snapshot.
-- [ ] T068 [US3] Implement `internal/app/accounts.go` (a `text/tabwriter` table) and wire `accounts [--ids]` in
+- [x] T068 [US3] Implement `internal/app/accounts.go` (a `text/tabwriter` table) and wire `accounts [--ids]` in
   `internal/app/cli.go`. Make T067 pass.
-- [ ] T069 [US3] Write the US3 acceptance test `internal/app/acceptance_us3_test.go` covering spec US3 scenarios 1–6:
+- [x] T069 [US3] Write the US3 acceptance test `internal/app/acceptance_us3_test.go` covering spec US3 scenarios 1–6:
   - multi-currency mapping;
   - ambiguous → unchecked "ambiguous mapping (Firefly #21, #22)" in the digest with exit 2;
   - excluded is not reported;

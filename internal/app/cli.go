@@ -27,8 +27,9 @@ const (
 	exitError = 2
 )
 
-// checkTimeout caps one whole check run, so a hung provider can never keep cron's job alive (R12).
-const checkTimeout = 10 * time.Minute
+// cmdTimeout caps one whole check or accounts run, so a hung provider can never keep cron's job alive
+// (R12).
+const cmdTimeout = 10 * time.Minute
 
 // develVersion is reported when the binary carries no module version, as in tests and `go run`.
 const develVersion = "(devel)"
@@ -186,7 +187,7 @@ func (c *cli) authCommand() *cobra.Command {
 	}
 }
 
-// accountsCommand builds `accounts [--ids]`, which is not implemented yet (US3).
+// accountsCommand builds `accounts [--ids]` (US3).
 func (c *cli) accountsCommand() *cobra.Command {
 	var ids bool
 
@@ -194,8 +195,8 @@ func (c *cli) accountsCommand() *cobra.Command {
 		Use:   "accounts",
 		Short: "Show how bank accounts map to Firefly III accounts",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			c.code = c.notImplemented("accounts")
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c.code = c.runAccounts(cmd.Context(), ids)
 
 			return nil
 		},
@@ -215,7 +216,7 @@ func (c *cli) runCheck(ctx context.Context, stdout bool) int {
 		return c.fail(ctx, warnings, err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	ctx, cancel := context.WithTimeout(ctx, cmdTimeout)
 	defer cancel()
 
 	deps, err := c.env.Factory(ctx, in)
@@ -232,6 +233,48 @@ func (c *cli) runCheck(ctx context.Context, stdout bool) int {
 	}
 
 	_, code := Check(ctx, deps, CheckOptions{Stdout: stdout})
+
+	return code
+}
+
+// runAccounts validates config the same way runCheck does (through the shared prepare path with
+// config.CmdAccounts), then builds dependencies through the Factory and runs the read-only accounts
+// report under the same 10-minute cap. A run-level Firefly III failure reaches stderr as its own
+// message and nothing else; otherwise the table Accounts already printed stands, and any bank whose
+// saved session could not be used gets its own stderr line (fix round 1 on fj-xwu.5.4) before the
+// mapping-completeness exit code (contracts/cli.md).
+func (c *cli) runAccounts(ctx context.Context, ids bool) int {
+	in, warnings, err := c.prepare(config.CmdAccounts, false)
+	if err != nil {
+		return c.fail(ctx, warnings, err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, cmdTimeout)
+	defer cancel()
+
+	deps, err := c.env.Factory(ctx, in)
+	if err != nil {
+		return c.fail(ctx, warnings, fmt.Errorf("build dependencies: %w", err))
+	}
+
+	if deps.Close != nil {
+		defer deps.Close()
+	}
+
+	for _, w := range warnings {
+		deps.Log.WarnContext(ctx, "configuration warning", "warning", w)
+	}
+
+	code, problems, err := Accounts(ctx, deps, ids)
+	if err != nil {
+		fmt.Fprintf(c.env.Stderr, "firefly-jar: accounts: %s\n", deps.Redactor.Scrub(err.Error()))
+
+		return exitError
+	}
+
+	for _, p := range problems {
+		fmt.Fprintf(c.env.Stderr, "firefly-jar: %s\n", p)
+	}
 
 	return code
 }
@@ -288,13 +331,6 @@ func (c *cli) fail(ctx context.Context, warnings []string, err error) int {
 	}
 
 	fmt.Fprintf(c.env.Stderr, "firefly-jar: %v\n", err)
-
-	return exitError
-}
-
-// notImplemented reports a command that a later user story delivers.
-func (c *cli) notImplemented(name string) int {
-	fmt.Fprintf(c.env.Stderr, "firefly-jar: %s: not implemented\n", name)
 
 	return exitError
 }
