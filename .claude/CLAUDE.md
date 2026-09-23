@@ -18,6 +18,8 @@ not an importer**: the owner enters every transaction by hand.
 | Domain types, matching algorithm, exit rules | [`specs/001-missing-tx-reminder/data-model.md`](../specs/001-missing-tx-reminder/data-model.md) |
 | CLI, config, digest and state formats | [`specs/001-missing-tx-reminder/contracts/`](../specs/001-missing-tx-reminder/contracts/) |
 | End-to-end validation and failure drills | [`specs/001-missing-tx-reminder/quickstart.md`](../specs/001-missing-tx-reminder/quickstart.md) |
+| How the packages fit together, in brief | [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) |
+| How a release is cut | [`docs/RELEASING.md`](../docs/RELEASING.md) |
 
 The constitution wins every conflict. If a change needs to break it, stop and ask. Do not work around it.
 
@@ -43,7 +45,7 @@ same checks.
 
 | Task | Does |
 |---|---|
-| `task setup` | `mise install` (pinned Go and golangci-lint), `go mod download` |
+| `task setup` | `mise install` (Go, golangci-lint `latest`, GoReleaser, git-cliff), `go mod download` |
 | `task format` / `task format:check` | `golangci-lint fmt` (gofumpt, gci, golines) / the same with `--diff` |
 | `task lint` | `golangci-lint run` |
 | `task test` | `go test -race ./...`. Never calls a live service. |
@@ -51,6 +53,12 @@ same checks.
 | `task audit` | `govulncheck ./...` |
 | `task cover` | `go test ./... -coverpkg=./... -coverprofile=cover.out` |
 | `task cover:check` | `task cover`, then fails if total coverage is below the 90% floor (`MIN_COVERAGE` in `Taskfile.yml`, the only place the number lives) |
+| `task changelog [TAG=vX.Y.Z]` | git-cliff prepends the next release's commit list to `CHANGELOG.md` |
+| `task release:check` / `task release:snapshot` | `goreleaser check` / build the release archives into `dist/` without publishing |
+| `task release:verify TAG=vX.Y.Z` | the tag matches the current `CHANGELOG.md` entry and its section extracts |
+
+Releases are cut by pushing a `v*` tag, following [`docs/RELEASING.md`](../docs/RELEASING.md). Tagging and pushing
+are the author's act.
 
 Live smoke tests exist only behind the `live` build tag (`go test -tags live …`) and need a real config. They
 are never part of `task check`.
@@ -82,7 +90,8 @@ Standard library first. Approved direct dependencies:
 
 `internal/civil` is a trimmed copy of `cloud.google.com/go/civil`'s `Date` type (Apache-2.0 header kept),
 used for civil dates end to end. It is not a dependency on `cloud.google.com/go` itself. `date.go` is that
-copy; `range.go` (`civil.Range`, the check window) is this repository's own code.
+copy, under the Apache-2.0 text in `internal/civil/LICENSE` (shipped in release archives as `LICENSE.civil`);
+`range.go` (`civil.Range`, the check window) is this repository's own code, under the repository's MIT `LICENSE`.
 
 Considered and not adopted: `fatih/color`, `dustin/go-humanize`. The digest is plain text for
 Telegram/email, and the terminal output (`auth` prompt, `accounts` table) is too small to benefit; revisit
@@ -171,11 +180,12 @@ Table-driven subtests use `s.Run(tc.name, func() { … })`. Also:
 
 ## Workflow
 
-- Features go through Spec Kit: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
-  `/speckit-tasks` → `/speckit-implement`. Artifacts live in `specs/<NNN-name>/`.
-- Implementing any task list follows the Superpowers workflow in order: **worktree → TDD (red-green-refactor)
-  → subagent-driven execution → code review → finish-branch**. Record any deviation in the plan's
-  Complexity Tracking.
+- Features go through Spec Kit for planning: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
+  `/speckit-tasks` → `/speckit-analyze`. Artifacts live in `specs/<NNN-name>/`.
+- Superpowers executes the task list (`/speckit-superpowers-execute`, or "execute this feature with
+  superpowers"): **import into beads → worktree → TDD (red-green-refactor) → subagent-driven execution → code
+  review → finish-branch**. Never run `/speckit-implement`. Record any deviation in the plan's Complexity
+  Tracking.
 - **Scope is asked, not decided.** If work turns out smaller than what was asked, name the missing part in the
   session summary as an open question. Never declare it out of scope yourself.
 - For library, SDK or API documentation, use `ctx7`, not memory.

@@ -75,6 +75,32 @@ tasks:
         echo "total coverage: ${total}% (floor ${floor}%)"
         awk -v total="$total" -v floor="${floor}" 'BEGIN { exit !(total + 0 >= floor + 0) }'
 
+  changelog:
+    desc: Prepend the generated commit list for the next release to CHANGELOG.md.
+    cmds:
+      # --unreleased is required alongside --prepend. --tag states the version, --bump derives it
+      # from the commits since the last tag. With no tag yet --bump yields "0.1.0" with no "v",
+      # which tag_pattern rejects, so the first release passes TAG.
+      - git-cliff --unreleased {{if .TAG}}--tag {{.TAG}}{{else}}--bump{{end}} --prepend CHANGELOG.md
+
+  release:check:
+    desc: Validate .goreleaser.yaml.
+    cmds:
+      - goreleaser check
+
+  release:verify:
+    desc: Verify TAG matches the current CHANGELOG.md entry before tagging.
+    requires:
+      vars: [TAG]
+    cmds:
+      - .github/scripts/check-release-version.sh {{.TAG}}
+      - .github/scripts/extract-changelog.sh {{.TAG}} >/dev/null
+
+  release:snapshot:
+    desc: Build the release archives into dist/ without publishing anything.
+    cmds:
+      - goreleaser release --snapshot --clean
+
   clean:
     desc: Remove build artifacts.
     cmds:

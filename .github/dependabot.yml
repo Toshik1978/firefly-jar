@@ -1,0 +1,48 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    # build(deps) is skipped by .cliff.toml, so version bumps stay out of the changelog.
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      # Every minor and patch bump in one pull request, so a quiet month is one PR rather than five.
+      # Majors stay ungrouped: those need reading.
+      gomod:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Actions referenced by workflows under .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    # ci(deps) is skipped by .cliff.toml.
+    commit-message:
+      prefix: ci
+      include: scope
+
+    # Every action is pinned to a moving major tag (`@v7`), so minor and patch releases arrive
+    # without a commit. Dependabot cannot tell an alias from a version: it reads `@v7` as 7,
+    # compares it with 7.0.1 and proposes a pin, freezing a self-updating alias. Majors are still
+    # proposed; those need a commit. Safe only while no action is pinned to an exact x.y.z.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - major

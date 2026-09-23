@@ -1,4 +1,5 @@
 [![CI](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml/badge.svg)](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Toshik1978/firefly-jar)](https://github.com/Toshik1978/firefly-jar/releases/latest)
 [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2FToshik1978%2F2e410514833da9aef60d5f9e2f8466b5%2Fraw%2Fcoverage.json)](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2FToshik1978%2F2e410514833da9aef60d5f9e2f8466b5%2Fraw%2Ftests.json)](https://github.com/Toshik1978/firefly-jar/actions/workflows/ci.yml)
 
@@ -49,7 +50,19 @@ No pull requests and no issues — the repository is provided as is, with no sup
 
 ## Install
 
-Build a static binary with the bundled task runner:
+Download the archive for your platform from the
+[latest release](https://github.com/Toshik1978/firefly-jar/releases/latest) (linux and darwin, amd64
+and arm64), check it against the release's `firefly-jar_<version>_checksums.txt`, and unpack it:
+
+```sh
+tar -xzf firefly-jar_<version>_linux_amd64.tar.gz
+sudo install -m 0755 firefly-jar /usr/local/bin/
+```
+
+`<version>` is the release without its leading `v` (`1.0.0` for `v1.0.0`). The archive also holds
+`config.example.yaml` to start your configuration from.
+
+Or build a static binary from source with the bundled task runner:
 
 ```sh
 task build
@@ -356,3 +369,18 @@ reminder history, has no web interface, and supports no notification channels be
 email. See
 [`specs/001-missing-tx-reminder/spec.md`](specs/001-missing-tx-reminder/spec.md) for the full
 functional specification.
+
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how the tool is built and why.
+- [`docs/RELEASING.md`](docs/RELEASING.md): how a release is cut.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): working on the code.
+- [`CHANGELOG.md`](CHANGELOG.md): what changed in each release.
+- [`specs/001-missing-tx-reminder/`](specs/001-missing-tx-reminder/): the specification, plan and
+  contracts.
+
+## License
+
+[MIT](LICENSE), except `internal/civil/date.go`: a trimmed copy of `cloud.google.com/go/civil`, which
+stays under the [Apache License 2.0](internal/civil/LICENSE) with its original copyright header and
+a note of what was changed. Release archives carry that license as `LICENSE.civil`.

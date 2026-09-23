@@ -346,8 +346,9 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
 - **Decision**:
   - **Task runner**: `go-task` (`Taskfile.yml`) with `setup`, `format`, `format:check`, `lint`, `test`
     (`go test -race ./...`), `build`, `check` (format:check → lint → test), `audit` (govulncheck), `clean`.
-  - **Pinned tooling**: `mise` (`.mise.toml`: `go = "1.27"`, `golangci-lint = "2.13.2"`; CI's golangci-lint-action
-    pins the same golangci-lint release).
+  - **Tooling**: `mise` (`.mise.toml`: `go = "1.27"`, `golangci-lint = "latest"`, `goreleaser = "2"`,
+    `git-cliff = "2"`). golangci-lint floats on `latest` both there and in CI's golangci-lint-action, so the two
+    always resolve the same release. GoReleaser and git-cliff drive releases (`docs/RELEASING.md`).
   - **Lint**: golangci-lint v2 with the author's standard strict configuration, committed as `.golangci.yml`
     **verbatim**. Only the module path (gci prefix, gofumpt `module-path`) is adapted. Changes to it need
     explicit approval, the same as a dependency. It uses `default: none` plus an explicit linter list,

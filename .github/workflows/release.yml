@@ -1,0 +1,103 @@
+name: Release
+
+# Cut a release by pushing a tag: `git tag -a v1.0.0 -m v1.0.0 && git push origin v1.0.0`. The tag is
+# the version, and this workflow only reads the repository. Full sequence in docs/RELEASING.md.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Never cancel midway: a half-finished run can leave a partial asset set.
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # GoReleaser needs the tags, and the Go toolchain stamps the version from them.
+          fetch-depth: 0
+          # The job's token can write releases, and the gate below runs code fetched at release time
+          # (govulncheck@latest). GoReleaser publishes through the API with GITHUB_TOKEN, so nothing
+          # needs the token stored in .git/config.
+          persist-credentials: false
+
+      # Cheap checks first, so a mistyped tag fails in seconds rather than after the whole gate.
+      # check-release-version.sh is the only guard that the tag is the CURRENT entry:
+      # extract-changelog.sh passes for any section anywhere in the file.
+      - name: Check the tag matches the changelog
+        run: .github/scripts/check-release-version.sh "$GITHUB_REF_NAME"
+
+      # Written outside the checkout: a new file in the tree would make the Go toolchain stamp the
+      # binary "+dirty" and GoReleaser refuse the dirty tree.
+      - name: Extract the release body from CHANGELOG.md
+        run: .github/scripts/extract-changelog.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-body.md"
+
+      # The same toolchain as local development: Go, golangci-lint, GoReleaser and git-cliff from
+      # .mise.toml. Uncached: a cache hit restores whatever versions were installed first, and the
+      # archives must be built by the newest Go 1.27 patch release with the newest golangci-lint.
+      - uses: jdx/mise-action@v4
+        with:
+          cache: false
+
+      - uses: go-task/setup-task@v2
+
+      # Never publish something that would not pass its own gate.
+      - name: Run the gate
+        run: task check
+
+      - name: Check dependencies for known vulnerabilities
+        run: task audit
+
+      # `firefly-jar --version` reports the version the Go toolchain stamps from git, not an -X
+      # ldflag. Prove it resolves to exactly this tag before anything is published: a tag Go does
+      # not accept as this module's version (v2 and up without a /v2 module path, say) would
+      # otherwise ship binaries reporting a pseudo-version.
+      - name: Check the binary reports the tag as its version
+        run: |
+          set -euo pipefail
+          go build -trimpath -o "$RUNNER_TEMP/firefly-jar" ./cmd/firefly-jar
+          got=$("$RUNNER_TEMP/firefly-jar" --version)
+          want="firefly-jar $GITHUB_REF_NAME"
+          if [ "$got" != "$want" ]; then
+            echo "::error::binary reports '$got', want '$want'"
+            exit 1
+          fi
+          echo "$got"
+
+      # --release-notes is read by the changelog pipe, which is left enabled for that reason. See
+      # the comment above `release:` in .goreleaser.yaml.
+      - name: Publish with GoReleaser
+        run: goreleaser release --clean --release-notes="$RUNNER_TEMP/release-body.md"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The notes are the one part no earlier step can see: `changelog: disable` makes GoReleaser ignore
+  # --release-notes silently and publish an empty body while every step reports success. Only
+  # reading the published release back catches it.
+  verify:
+    name: Check the published release has notes
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse an empty release body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          body=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+            echo "::error::$GITHUB_REF_NAME was published with an empty body; check changelog.disable in .goreleaser.yaml"
+            exit 1
+          fi
+          echo "release body: $(printf '%s' "$body" | wc -c) bytes"
