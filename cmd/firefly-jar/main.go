@@ -4,6 +4,8 @@ package main
 
 import (
 	"os"
+	// The embedded zone database lets a server without zoneinfo still load the configured timezone.
+	_ "time/tzdata"
 
 	"github.com/Toshik1978/firefly-jar/internal/app"
 )

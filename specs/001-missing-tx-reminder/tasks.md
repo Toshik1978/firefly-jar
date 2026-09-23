@@ -337,16 +337,16 @@ run prints nothing and exits 0. The end-to-end version is T056.
 
 ### Enable Banking: JWT and transactions (R2, R5, R6, R7)
 
-- [ ] T026 [P] [US1] Write `SignerSuite` in `internal/bank/enablebanking/jwt_test.go`, registered in
+- [x] T026 [P] [US1] Write `SignerSuite` in `internal/bank/enablebanking/jwt_test.go`, registered in
   `internal/bank/enablebanking/enablebanking_test.go`:
   - The token has three base64url parts.
   - The header is exactly `{"typ":"JWT","alg":"RS256","kid":"<app_id>"}`.
   - Claims are `iss:"enablebanking.com"`, `aud:"api.enablebanking.com"`, and `exp = iat + 3600`.
   - The signature verifies with `rsa.VerifyPKCS1v15`, using the public half of the test key.
   - The cached token is reused until 5 minutes before `exp`, then re-signed (injected clock).
-- [ ] T027 [US1] Implement `internal/bank/enablebanking/jwt.go` (`Signer{appID; key *rsa.PrivateKey; now func()
+- [x] T027 [US1] Implement `internal/bank/enablebanking/jwt.go` (`Signer{appID; key *rsa.PrivateKey; now func()
   time.Time}` with `Token() (string, error)`), stdlib only. Make T026 pass.
-- [ ] T028 [P] [US1] Add anonymized fixtures under `testdata/enablebanking/`:
+- [x] T028 [P] [US1] Add anonymized fixtures under `testdata/enablebanking/`:
   - `tx_flat_p1.json`: `continuation_key: "k2"`. Include DBIT and CRDT; one `PDNG` and one `BOOK` sharing
     `entry_reference: "ER-1"`; `HOLD`, `OTHR`, `CNCL`, `RJCT`, `SCHD`; a zero amount; one entry with only
     `booking_date`; one with only `value_date`; one with no date at all
@@ -356,7 +356,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - `tx_grouped.json`: `{"transactions":{"booked":[…],"pending":[…]}}`.
   - Error bodies `err_rate_limit.json`, `err_expired_session.json`, `err_revoked_session.json` and
     `err_closed_session.json`, shaped `{"message":…,"code":…,"error":…,"detail":…}`.
-- [ ] T029 [P] [US1] (FR-002, FR-005, FR-005a, FR-005b) Write `TransactionsSuite` in
+- [x] T029 [P] [US1] (FR-002, FR-005, FR-005a, FR-005b) Write `TransactionsSuite` in
   `internal/bank/enablebanking/transactions_test.go`:
   - **Request**: `GET /accounts/{uid}/transactions` has `date_from = from − 1 day` and **no** `date_to` or
     `transaction_status`. `Authorization: Bearer <jwt>` is present, and no header starts with `Psu-`.
@@ -374,7 +374,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - **Errors**: 429 with `ASPSP_RATE_LIMIT_EXCEEDED` (after retries are exhausted) → `ErrRateLimited`.
     `EXPIRED_SESSION` → `ErrConsentExpired`. `REVOKED_SESSION`/`CLOSED_SESSION` → `ErrConsentRevoked`. Any
     other error → `*bank.Error` whose detail is the redacted `message`.
-- [ ] T030 [US1] Implement:
+- [x] T030 [US1] Implement:
   - `internal/bank/enablebanking/models.go`: hand-written structs for the fields used only.
   - `client.go`: `Client{baseURL string; http *http.Client; signer *Signer; redactor *redact.Redactor}`,
     `New(...)`, base URL `https://api.enablebanking.com`, built on `httpx`.
@@ -384,7 +384,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
 
 ### Firefly III: read-only client (R8, FR-001, FR-006, FR-006a, FR-009)
 
-- [ ] T031 [P] [US1] Write `ReadOnlySuite` in `internal/firefly/readonly_test.go`, registered in
+- [x] T031 [P] [US1] Write `ReadOnlySuite` in `internal/firefly/readonly_test.go`, registered in
   `internal/firefly/firefly_test.go`:
   - POST, PUT, PATCH and DELETE through `ReadOnlyTransport` return `ErrWriteForbidden`, and the
     `httptest.Server` hit counter stays **0**.
@@ -393,13 +393,13 @@ run prints nothing and exits 0. The end-to-end version is T056.
     client returns an error.
   - The `Authorization: Bearer <token>` header is sent with the token trimmed of whitespace and newlines, and
     `Accept: application/json` is sent.
-- [ ] T032 [US1] Implement `internal/firefly/readonly.go` (`ReadOnlyTransport`, `ErrWriteForbidden`) and
+- [x] T032 [US1] Implement `internal/firefly/readonly.go` (`ReadOnlyTransport`, `ErrWriteForbidden`) and
   `internal/firefly/client.go`:
   - `New(baseURL, token string, base http.RoundTripper) *Client` composing
     `ReadOnlyTransport{httpx.RetryTransport{base}}`, using `httpx.NewClient` so redirects are never followed.
   - Header injection.
   - Make T031 pass.
-- [ ] T033 [P] [US1] Add anonymized fixtures under `testdata/firefly/`:
+- [x] T033 [P] [US1] Add anonymized fixtures under `testdata/firefly/`:
   - `accounts_p1.json` and `accounts_p2.json`: `total_pages: 2`. `p2` repeats `current_page: 1` to prove the
     client counts pages itself. Accounts include one with a lowercase IBAN, one with `active: false`, one
     `ccAsset` role, one with no `active` key, and two sharing an IBAN in EUR and USD.
@@ -415,14 +415,14 @@ run prints nothing and exits 0. The end-to-end version is T056.
     - 12-decimal amounts like `"12.340000000000"`;
     - `date: "2026-09-20T23:30:00+02:00"`.
   - Error bodies `err_401.json`, `err_404.json`, `err_422.json`.
-- [ ] T034 [P] [US1] Write `AccountsSuite` in `internal/firefly/accounts_test.go`:
+- [x] T034 [P] [US1] Write `AccountsSuite` in `internal/firefly/accounts_test.go`:
   - `ListAccounts` requests `type=asset&limit=500&page=N`.
   - It stops at `total_pages` using its own counter, even though `current_page` is stuck.
   - Missing `meta` means a single page.
   - Mapping: IBAN is uppercased and `null` becomes `""`; `active` defaults to true when missing;
     `currency_code` and `currency_decimal_places` map; `account_role` maps to `Role`.
   - A 401 maps to `ErrUnauthorized` with detail "Firefly token rejected".
-- [ ] T035 [P] [US1] Write `TransactionsSuite` in `internal/firefly/transactions_test.go`:
+- [x] T035 [P] [US1] Write `TransactionsSuite` in `internal/firefly/transactions_test.go`:
   - `ListAccountTransactions(ctx, accountID, currency string, start, end domain.Date)` sends
     `start`/`end` as `YYYY-MM-DD`, plus `types=withdrawal,deposit,transfer`, `type=default` and `limit=500`.
   - Group "7" is merged across pages by group id and `transaction_journal_id` into **one** entry whose amount
@@ -435,7 +435,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - Entry date is the `YYYY-MM-DD` prefix of the first split's `date`, so the fixture gives `2026-09-20`.
   - After 200 pages the result is `ErrDataIncomplete`. A 404 maps to `ErrNotFound`. A non-JSON error body
     yields the status code only.
-- [ ] T036 [US1] Implement:
+- [x] T036 [US1] Implement:
   - `internal/firefly/models.go` (hand-written structs; `type` as a string).
   - `internal/firefly/accounts.go` (`ListAccounts`, returning `[]Account` from `types.go`).
   - `internal/firefly/transactions.go` (`ListAccountTransactions`, returning `[]Entry` from `types.go`).
@@ -445,7 +445,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
 
 ### mapping: automatic IBAN+currency resolution (FR-014, FR-016)
 
-- [ ] T037 [P] [US1] Write `AutoSuite` in `internal/mapping/mapping_test.go`, registered in
+- [x] T037 [P] [US1] Write `AutoSuite` in `internal/mapping/mapping_test.go`, registered in
   `internal/mapping/mapping_pkg_test.go`:
   - Exactly one active Firefly account with an equal normalized IBAN **and** equal currency → `Auto`.
   - Two such accounts → `Ambiguous`, with both in `Candidates`.
@@ -455,7 +455,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - Spaces and letter case in the IBAN are ignored.
   - EUR and USD bank accounts sharing an IBAN each map to the Firefly account of their own currency
     (spec US3 scenario 2).
-- [ ] T038 [US1] Implement `internal/mapping/mapping.go`:
+- [x] T038 [US1] Implement `internal/mapping/mapping.go`:
   - `Status` enum `Auto|Override|Excluded|Ambiguous|Unmapped`.
   - `Mapping{Bank bank.Account; Status Status; Firefly *firefly.Account; Candidates []firefly.Account;
     Detail string}`.
@@ -466,7 +466,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
 
 ### reconcile: pure matching (FR-007–FR-011, FR-026, data-model "Algorithm")
 
-- [ ] T039 [P] [US1] (FR-005b, FR-007, FR-008, FR-010, FR-011, FR-025a, FR-026) Write `ReconcileSuite` in
+- [x] T039 [P] [US1] (FR-005b, FR-007, FR-008, FR-010, FR-011, FR-025a, FR-026) Write `ReconcileSuite` in
   `internal/reconcile/reconcile_test.go`, registered in
   `internal/reconcile/reconcile_pkg_test.go`, as table-driven cases. **Every case asserts the invariant**
   `len(inWindow) == len(Matched)+len(Missing)+Deduplicated+Void`. Cases:
@@ -495,7 +495,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
     - A Taken candidate beats a NearMiss one at equal distance.
     - Hints never change the matched and missing counts.
   - Determinism: shuffled input orders give an identical result, including hints.
-- [ ] T040 [US1] Implement `internal/reconcile/reconcile.go`:
+- [x] T040 [US1] Implement `internal/reconcile/reconcile.go`:
   - `Result{Matched []Pair; Missing []Missing; Deduplicated, Void int}`, with
     `Pair{Bank bank.Transaction; Firefly firefly.Entry}` and
     `Missing{Tx bank.Transaction; Pending, LastReminder bool; Hint *Hint}`, with
@@ -506,7 +506,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
 
 ### report: run outcome rules (FR-024, FR-029, data-model "Run outcome")
 
-- [ ] T041 [P] [US1] Write `ReportSuite` in `internal/report/report_test.go`, registered in
+- [x] T041 [P] [US1] Write `ReportSuite` in `internal/report/report_test.go`, registered in
   `internal/report/report_pkg_test.go`:
   - `ExitCode()`:
     - 0 when clean;
@@ -517,7 +517,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - `DigestNeeded()` is true only when there is a missing transaction, a consent warning, an unchecked
     account or a problem.
   - `Summary()` counts: accounts checked/unchecked, matched, missing, deduplicated, void.
-- [ ] T042 [US1] Implement `internal/report`, split to keep at most 5 exported types per file (revive
+- [x] T042 [US1] Implement `internal/report`, split to keep at most 5 exported types per file (revive
   `max-public-structs`): `report.go` (`RunReport`, `AccountResult`, `Problem`), `unchecked.go` (`Unchecked`,
   `UncheckedCode`) and `delivery.go` (`Delivery`, `DeliveryFailure`, `ConsentWarning`):
   - `AccountResult{Mapping mapping.Mapping; Result reconcile.Result; Unchecked *Unchecked}`.
@@ -535,7 +535,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
 
 ### digest: text rendering (contracts/digest.md, FR-025)
 
-- [ ] T043 [P] [US1] Write `RenderSuite` in `internal/digest/digest_test.go`, registered in
+- [x] T043 [P] [US1] Write `RenderSuite` in `internal/digest/digest_test.go`, registered in
   `internal/digest/digest_pkg_test.go`, with golden files `testdata/digest/full.golden`,
   `missing_only.golden` and `consent_only.golden`. Regenerate them only when `UPDATE_GOLDEN=1` is set, read with
   `os.Getenv` inside the suite. No `flag` package variable (`gochecknoglobals`). Cases:
@@ -554,20 +554,20 @@ run prints nothing and exits 0. The end-to-end version is T056.
     both.
   - No output contains an unmasked IBAN.
   - `Subject` equals the header line.
-- [ ] T044 [US1] Implement `internal/digest/digest.go` (`Digest{Subject string; Lines []string}`,
+- [x] T044 [US1] Implement `internal/digest/digest.go` (`Digest{Subject string; Lines []string}`,
   `Render(r report.RunReport, banks map[string]config.Bank) Digest`, `Text() string`). Make T043 pass.
 
 ### notify: fan-out, Telegram, email (FR-023, FR-027, FR-028, R9, R10)
 
-- [ ] T045 [P] [US1] Write `FanOutSuite` in `internal/notify/notify_test.go`, registered in
+- [x] T045 [P] [US1] Write `FanOutSuite` in `internal/notify/notify_test.go`, registered in
   `internal/notify/notify_pkg_test.go`:
   - Every notifier is called even when an earlier one fails.
   - Results are merged into `report.Delivery` (Attempted = total recipients, Succeeded, and Failures with
     masked recipient and redacted reason).
-- [ ] T046 [US1] Implement `internal/notify/notify.go` (`type Notifier interface { Name() string; Send(ctx,
+- [x] T046 [US1] Implement `internal/notify/notify.go` (`type Notifier interface { Name() string; Send(ctx,
   digest.Digest) []Result }`, `Result{Recipient string; Err error}`, `FanOut(ctx, []Notifier, digest.Digest)
   report.Delivery`). Make T045 pass.
-- [ ] T047 [P] [US1] Write `TelegramSuite` in `internal/notify/telegram/telegram_test.go`, registered in
+- [x] T047 [P] [US1] Write `TelegramSuite` in `internal/notify/telegram/telegram_test.go`, registered in
   `internal/notify/telegram/telegram_pkg_test.go`. The request-shape, splitting and secrecy cases use
   `httptest`. The pacing and retry cases run inside `synctest` with an **in-process fake `http.RoundTripper`**
   injected through the notifier's `*http.Client`, with no sockets.
@@ -584,10 +584,10 @@ run prints nothing and exits 0. The end-to-end version is T056.
     - 400, 401 and 403 fail that recipient at once.
   - **Recipients**: each chat id is attempted independently.
   - **Secrecy**: no returned error or log line contains the bot token.
-- [ ] T048 [US1] Implement `internal/notify/telegram/telegram.go` (`New(token string, chatIDs []int64, hc
+- [x] T048 [US1] Implement `internal/notify/telegram/telegram.go` (`New(token string, chatIDs []int64, hc
   *http.Client, now/sleep injected) *Notifier`), with base URL `https://api.telegram.org` overridable for
   tests. Make T047 pass.
-- [ ] T049 [P] [US1] Write `EmailSuite` in `internal/notify/email/email_test.go`, registered in
+- [x] T049 [P] [US1] Write `EmailSuite` in `internal/notify/email/email_test.go`, registered in
   `internal/notify/email/email_pkg_test.go`, against an in-test fake SMTP server (`net.Listen` on
   127.0.0.1). The server speaks EHLO, STARTTLS with a test certificate injected via `RootCAs`, AUTH PLAIN,
   MAIL, RCPT and DATA, and can also run implicit TLS.
@@ -601,13 +601,13 @@ run prints nothing and exits 0. The end-to-end version is T056.
     - a header value containing CR or LF is rejected.
   - **Recipients**: one `to` rejected at RCPT → that recipient fails and the others are delivered.
   - **Transport**: the connection deadline is applied.
-- [ ] T050 [US1] Implement `internal/notify/email/email.go` (`New(cfg config.Email, password string, tlsCfg
+- [x] T050 [US1] Implement `internal/notify/email/email.go` (`New(cfg config.Email, password string, tlsCfg
   *tls.Config) *Notifier`, using `net/smtp` with explicit STARTTLS or implicit TLS per R10, never
   `smtp.SendMail`). Make T049 pass.
 
 ### app: the check pipeline and CLI (FR-003, FR-004, FR-012, FR-013, FR-039, contracts/cli.md)
 
-- [ ] T051 [P] [US1] Write `CheckSuite` in `internal/app/check_test.go`, registered in `internal/app/app_test.go`.
+- [x] T051 [P] [US1] Write `CheckSuite` in `internal/app/check_test.go`, registered in `internal/app/app_test.go`.
   Use a fake `bank.Provider`, an `httptest` Firefly serving `testdata/firefly/*`, a recording fake
   `notify.Notifier`, a fixed clock (`2026-09-22 10:00 Europe/Vilnius`) and `bytes.Buffer` log writers. Cases:
   - Spec US1 scenarios 1, 2, 3, 6 and 7 end to end.
@@ -619,7 +619,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - The bank is queried `from = window.From`.
   - One INFO summary record is written to the file log with `window`, `accounts_checked`,
     `accounts_unchecked`, `matched`, `missing`, `deduplicated` and `void`.
-- [ ] T052 [US1] Implement `internal/app/check.go`:
+- [x] T052 [US1] Implement `internal/app/check.go`:
   - `type Deps struct{ Config *config.Config; State *state.State; Provider bank.Provider; Firefly
     *firefly.Client; Notifiers []notify.Notifier; Log *slog.Logger; Now func() time.Time; Stdout io.Writer }`.
   - `Check(ctx, deps, opts CheckOptions) (report.RunReport, int)`, in this order:
@@ -630,7 +630,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
     4. Render the digest if needed, then send it or print it.
     5. Log the summary.
   - Make T051 pass.
-- [ ] T053 [P] [US1] Write `CLISuite` in `internal/app/cli_test.go`:
+- [x] T053 [P] [US1] Write `CLISuite` in `internal/app/cli_test.go`:
   - `Run([]string{"--version"}, …)` exits 0 and prints the version.
   - `Run([]string{"bogus"})` exits 2 with usage on stderr.
   - `check --help` exits 0.
@@ -640,7 +640,7 @@ run prints nothing and exits 0. The end-to-end version is T056.
     - `check --stdout`, with the Telegram token and SMTP password files missing, builds no notifier and exits
       0 or 1;
     - `check` without `--stdout` builds exactly the notifiers configured.
-- [ ] T054 [US1] Complete `internal/app/cli.go` and add `internal/app/wire.go`:
+- [x] T054 [US1] Complete `internal/app/cli.go` and add `internal/app/wire.go`:
   - `Run` parses subcommands with `github.com/spf13/cobra` (owner-approved 2026-09-22), not
     `flag.NewFlagSet`: a cobra root command wired with `SetArgs`/`SetIn`/`SetOut`/`SetErr` and
     `SilenceUsage`/`SilenceErrors`, exit codes mapped explicitly, keeping `Run(args, stdin, stdout, stderr)
@@ -657,10 +657,10 @@ run prints nothing and exits 0. The end-to-end version is T056.
   - `auth` and `accounts` print "not implemented" and exit 2 until US2 and US3.
   - Keep `cmd/firefly-jar/main.go` under 30 lines.
   - Make T053 pass.
-- [ ] T055 [P] [US1] Add the build-tagged live smoke test `internal/app/live_test.go` (`//go:build live`). It runs
+- [x] T055 [P] [US1] Add the build-tagged live smoke test `internal/app/live_test.go` (`//go:build live`). It runs
   `check --stdout` against the config in `FIREFLY_JAR_CONFIG` and asserts exit ∈ {0,1}. It is excluded from
   `task check`.
-- [ ] T056 [US1] Write the US1 acceptance test `internal/app/acceptance_us1_test.go` (`AcceptanceUS1Suite`) covering
+- [x] T056 [US1] Write the US1 acceptance test `internal/app/acceptance_us1_test.go` (`AcceptanceUS1Suite`) covering
   the Independent Test: one unentered transaction gives exit 1 and a digest containing exactly it. The
   Firefly fixture is then updated to include it, and the next run gives exit 0 and sends nothing.
 

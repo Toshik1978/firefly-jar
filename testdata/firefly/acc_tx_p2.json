@@ -1,0 +1,195 @@
+{
+  "data": [
+    {
+      "type": "transactions",
+      "id": "7",
+      "attributes": {
+        "created_at": "2026-09-01T00:00:00+02:00",
+        "updated_at": "2026-09-01T00:00:00+02:00",
+        "user": "1",
+        "group_title": null,
+        "transactions": [
+          {
+            "user": "1",
+            "transaction_journal_id": "702",
+            "type": "withdrawal",
+            "date": "2026-09-18T08:05:00+02:00",
+            "order": 0,
+            "currency_id": "1",
+            "currency_code": "EUR",
+            "currency_symbol": "EUR",
+            "currency_decimal_places": 2,
+            "foreign_currency_id": null,
+            "foreign_currency_code": null,
+            "foreign_currency_symbol": null,
+            "foreign_currency_decimal_places": null,
+            "amount": "10.000000000000",
+            "foreign_amount": null,
+            "description": "anonymized",
+            "source_id": "1",
+            "source_name": "Main Account",
+            "source_type": "Asset account",
+            "destination_id": "3001",
+            "destination_name": "Grocery Store",
+            "destination_type": "Asset account",
+            "category_id": null,
+            "category_name": null,
+            "reconciled": false,
+            "notes": null,
+            "tags": []
+          }
+        ]
+      },
+      "links": {
+        "self": "http://localhost/api/v1/transactions/7"
+      }
+    },
+    {
+      "type": "transactions",
+      "id": "8",
+      "attributes": {
+        "created_at": "2026-09-01T00:00:00+02:00",
+        "updated_at": "2026-09-01T00:00:00+02:00",
+        "user": "1",
+        "group_title": null,
+        "transactions": [
+          {
+            "user": "1",
+            "transaction_journal_id": "108",
+            "type": "reconciliation",
+            "date": "2026-09-02T00:00:00+02:00",
+            "order": 0,
+            "currency_id": "1",
+            "currency_code": "EUR",
+            "currency_symbol": "EUR",
+            "currency_decimal_places": 2,
+            "foreign_currency_id": null,
+            "foreign_currency_code": null,
+            "foreign_currency_symbol": null,
+            "foreign_currency_decimal_places": null,
+            "amount": "5.000000000000",
+            "foreign_amount": null,
+            "description": "anonymized",
+            "source_id": "1",
+            "source_name": "Main Account",
+            "source_type": "Asset account",
+            "destination_id": "9998",
+            "destination_name": "Reconciliation",
+            "destination_type": "Asset account",
+            "category_id": null,
+            "category_name": null,
+            "reconciled": false,
+            "notes": null,
+            "tags": []
+          }
+        ]
+      },
+      "links": {
+        "self": "http://localhost/api/v1/transactions/8"
+      }
+    },
+    {
+      "type": "transactions",
+      "id": "9",
+      "attributes": {
+        "created_at": "2026-09-01T00:00:00+02:00",
+        "updated_at": "2026-09-01T00:00:00+02:00",
+        "user": "1",
+        "group_title": null,
+        "transactions": [
+          {
+            "user": "1",
+            "transaction_journal_id": "109",
+            "type": "liability credit",
+            "date": "2026-09-03T00:00:00+02:00",
+            "order": 0,
+            "currency_id": "1",
+            "currency_code": "EUR",
+            "currency_symbol": "EUR",
+            "currency_decimal_places": 2,
+            "foreign_currency_id": null,
+            "foreign_currency_code": null,
+            "foreign_currency_symbol": null,
+            "foreign_currency_decimal_places": null,
+            "amount": "20.000000000000",
+            "foreign_amount": null,
+            "description": "anonymized",
+            "source_id": "5555",
+            "source_name": "Credit Card Liability",
+            "source_type": "Asset account",
+            "destination_id": "1",
+            "destination_name": "Main Account",
+            "destination_type": "Asset account",
+            "category_id": null,
+            "category_name": null,
+            "reconciled": false,
+            "notes": null,
+            "tags": []
+          }
+        ]
+      },
+      "links": {
+        "self": "http://localhost/api/v1/transactions/9"
+      }
+    },
+    {
+      "type": "transactions",
+      "id": "10",
+      "attributes": {
+        "created_at": "2026-09-01T00:00:00+02:00",
+        "updated_at": "2026-09-01T00:00:00+02:00",
+        "user": "1",
+        "group_title": null,
+        "transactions": [
+          {
+            "user": "1",
+            "transaction_journal_id": "110",
+            "type": "withdrawal",
+            "date": "2026-09-04T00:00:00+02:00",
+            "order": 0,
+            "currency_id": "1",
+            "currency_code": "USD",
+            "currency_symbol": "USD",
+            "currency_decimal_places": 2,
+            "foreign_currency_id": null,
+            "foreign_currency_code": null,
+            "foreign_currency_symbol": null,
+            "foreign_currency_decimal_places": null,
+            "amount": "45.000000000000",
+            "foreign_amount": null,
+            "description": "anonymized",
+            "source_id": "1",
+            "source_name": "Main Account",
+            "source_type": "Asset account",
+            "destination_id": "3002",
+            "destination_name": "Foreign Shop",
+            "destination_type": "Asset account",
+            "category_id": null,
+            "category_name": null,
+            "reconciled": false,
+            "notes": null,
+            "tags": []
+          }
+        ]
+      },
+      "links": {
+        "self": "http://localhost/api/v1/transactions/10"
+      }
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 11,
+      "count": 4,
+      "per_page": 500,
+      "current_page": 2,
+      "total_pages": 2
+    }
+  },
+  "links": {
+    "self": "http://localhost/api/v1/accounts/1/transactions?limit=500&page=2",
+    "first": "http://localhost/api/v1/accounts/1/transactions?limit=500&page=1",
+    "prev": "http://localhost/api/v1/accounts/1/transactions?limit=500&page=1",
+    "last": "http://localhost/api/v1/accounts/1/transactions?limit=500&page=2"
+  }
+}

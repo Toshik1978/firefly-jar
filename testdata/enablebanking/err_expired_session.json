@@ -1,0 +1,6 @@
+{
+  "message": "Session has expired",
+  "code": 401,
+  "error": "EXPIRED_SESSION",
+  "detail": "The session's access.valid_until has passed"
+}

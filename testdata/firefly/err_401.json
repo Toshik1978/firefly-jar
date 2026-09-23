@@ -1,0 +1,4 @@
+{
+  "message": "Unauthenticated.",
+  "exception": "AuthenticationException"
+}

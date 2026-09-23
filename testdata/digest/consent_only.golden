@@ -1,0 +1,5 @@
+firefly-jar: 0 missing, 0 unchecked accounts (window 2026-08-24 – 2026-09-22)
+
+⏰ Consent
+- seb: consent expires 2026-09-27 (5 days) — run: firefly-jar auth seb
+- swedbank: consent expires 2026-10-01 (9 days) — run: firefly-jar auth swedbank

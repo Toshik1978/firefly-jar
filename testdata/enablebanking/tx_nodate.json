@@ -1,0 +1,13 @@
+{
+  "transactions": [
+    {
+      "entry_reference": "ER-30",
+      "transaction_amount": { "currency": "EUR", "amount": "2.00" },
+      "credit_debit_indicator": "DBIT",
+      "status": "BOOK",
+      "creditor": { "name": "Coffee Shop" },
+      "remittance_information": ["Coffee Shop purchase, no dates supplied"]
+    }
+  ],
+  "continuation_key": null
+}

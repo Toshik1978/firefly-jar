@@ -1,0 +1,6 @@
+{
+  "message": "Session is closed",
+  "code": 401,
+  "error": "CLOSED_SESSION",
+  "detail": "The session was closed and can no longer be used"
+}

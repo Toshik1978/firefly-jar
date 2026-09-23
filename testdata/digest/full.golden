@@ -1,0 +1,18 @@
+firefly-jar: 5 missing, 2 unchecked accounts (window 2026-08-24 – 2026-09-22)
+
+⚠ Problems
+- luminor: not authorized
+- revolut LT99…0001 (Revolut USD): unchecked — ambiguous mapping (Firefly #21, #22)
+- swedbank LT12…7890 (Savings): unchecked — rate limited: provider returned 429
+
+⏰ Consent
+- seb: consent expires 2026-09-27 (5 days) — run: firefly-jar auth seb
+
+Missing in Firefly III
+Revolut · LT99…0001 · Revolut EUR (EUR)
+- 2026-08-24  -12.00 EUR  STREAMING SERVICE  🔚 last reminder
+Swedbank · LT12…3456 · Main (EUR)
+- 2026-09-21  -4.50 EUR  COFFEE SHOP  ⏳ pending
+- 2026-09-19  -63.12 EUR  SUPERMARKET
+- 2026-09-15  -4.50 EUR  COFFEE SHOP  ≈ Firefly #7 on 2026-09-13 (paired with another)
+- 2026-09-10  -25.00 EUR  CITY PARKING  ≈ Firefly #9 on 2026-09-15 (5 days apart)

@@ -1,0 +1,6 @@
+{
+  "message": "Session has been revoked by the PSU",
+  "code": 401,
+  "error": "REVOKED_SESSION",
+  "detail": "The PSU revoked consent for this session"
+}

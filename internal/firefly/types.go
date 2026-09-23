@@ -27,17 +27,19 @@ type Account struct {
 	Active bool
 }
 
-// Entry represents a Firefly III transaction entry (split).
+// Entry is one Firefly III transaction group as seen from one asset account: the group's
+// comparable withdrawal, deposit and transfer splits touching the account, summed and signed
+// relative to it (FR-009).
 type Entry struct {
 	// GroupID is the transaction group identifier.
 	GroupID string
 	// AccountID is the asset account this entry is relative to.
 	AccountID string
-	// Date is the YYYY-MM-DD prefix of the split's date as Firefly III renders it, in civil date
-	// format. It is never re-converted from timestamps.
+	// Date is the YYYY-MM-DD prefix of the first counted split's date as Firefly III renders it,
+	// in civil date format. It is never re-converted from timestamps.
 	Date civil.Date
-	// Amount is signed relative to the account, in the account's currency. Comparable splits in
-	// the group are summed.
+	// Amount is the signed sum of the group's comparable splits, in the account's currency:
+	// negative where the account is the source, positive where it is the destination.
 	Amount domain.Amount
 	// Description is kept in memory for tests and debugging only. It is never logged, per
 	// constitution §V.

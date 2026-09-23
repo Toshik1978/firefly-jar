@@ -1,0 +1,23 @@
+{
+  "transactions": [
+    {
+      "entry_reference": "ER-11",
+      "transaction_id": "00000000-0000-0000-0000-000000000003",
+      "transaction_amount": { "currency": "EUR", "amount": "9.99" },
+      "credit_debit_indicator": "DBIT",
+      "status": "BOOK",
+      "transaction_date": "2026-09-14",
+      "creditor": { "name": "Grocery Store" },
+      "remittance_information": ["Grocery Store purchase"]
+    },
+    {
+      "entry_reference": "ER-12",
+      "transaction_amount": { "currency": "EUR", "amount": "3.30" },
+      "credit_debit_indicator": "DBIT",
+      "status": "BOOK",
+      "transaction_date": "2026-09-17",
+      "remittance_information": []
+    }
+  ],
+  "continuation_key": null
+}

@@ -1,0 +1,6 @@
+{
+  "message": "ASPSP rate limit exceeded",
+  "code": 429,
+  "error": "ASPSP_RATE_LIMIT_EXCEEDED",
+  "detail": "Too many requests were made to the ASPSP for this PSU"
+}

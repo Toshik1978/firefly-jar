@@ -1,0 +1,104 @@
+{
+  "transactions": [
+    {
+      "entry_reference": "ER-1",
+      "transaction_id": "00000000-0000-0000-0000-000000000001",
+      "transaction_amount": { "currency": "EUR", "amount": "4.50" },
+      "credit_debit_indicator": "DBIT",
+      "status": "BOOK",
+      "transaction_date": "2026-09-05",
+      "creditor": { "name": "Coffee Shop" },
+      "remittance_information": ["Coffee Shop purchase"]
+    },
+    {
+      "entry_reference": "ER-1",
+      "transaction_amount": { "currency": "EUR", "amount": "4.50" },
+      "credit_debit_indicator": "DBIT",
+      "status": "PDNG",
+      "transaction_date": "2026-09-05",
+      "creditor": { "name": "Coffee Shop" },
+      "remittance_information": ["Coffee Shop purchase"]
+    },
+    {
+      "entry_reference": "ER-2",
+      "transaction_id": "00000000-0000-0000-0000-000000000002",
+      "transaction_amount": { "currency": "EUR", "amount": "15.00" },
+      "credit_debit_indicator": "CRDT",
+      "status": "HOLD",
+      "transaction_date": "2026-09-06",
+      "debtor": { "name": "Employer Ltd" },
+      "remittance_information": ["Salary advance"]
+    },
+    {
+      "entry_reference": "ER-3",
+      "transaction_amount": { "currency": "EUR", "amount": "3.20" },
+      "credit_debit_indicator": "DBIT",
+      "status": "OTHR",
+      "transaction_date": "2026-09-07",
+      "creditor": { "name": "Grocery Store" },
+      "remittance_information": ["Grocery Store purchase"]
+    },
+    {
+      "entry_reference": "ER-4",
+      "transaction_amount": { "currency": "EUR", "amount": "50.00" },
+      "credit_debit_indicator": "DBIT",
+      "status": "CNCL",
+      "transaction_date": "2026-09-08",
+      "creditor": { "name": "Grocery Store" },
+      "remittance_information": ["Cancelled authorization"]
+    },
+    {
+      "entry_reference": "ER-5",
+      "transaction_amount": { "currency": "EUR", "amount": "12.00" },
+      "credit_debit_indicator": "DBIT",
+      "status": "RJCT",
+      "transaction_date": "2026-09-09",
+      "creditor": { "name": "Coffee Shop" },
+      "remittance_information": ["Rejected payment"]
+    },
+    {
+      "entry_reference": "ER-6",
+      "transaction_amount": { "currency": "EUR", "amount": "100.00" },
+      "credit_debit_indicator": "DBIT",
+      "status": "SCHD",
+      "transaction_date": "2026-09-20",
+      "creditor": { "name": "Employer Ltd" },
+      "remittance_information": ["Scheduled future payment"]
+    },
+    {
+      "entry_reference": "ER-7",
+      "transaction_amount": { "currency": "EUR", "amount": "0.00" },
+      "credit_debit_indicator": "DBIT",
+      "status": "BOOK",
+      "transaction_date": "2026-09-10",
+      "creditor": { "name": "Coffee Shop" },
+      "remittance_information": ["Card verification, hold released"]
+    },
+    {
+      "entry_reference": "ER-8",
+      "transaction_amount": { "currency": "EUR", "amount": "6.00" },
+      "credit_debit_indicator": "DBIT",
+      "status": "BOOK",
+      "booking_date": "2026-09-11",
+      "creditor": { "name": "Grocery Store" },
+      "remittance_information": ["Grocery Store purchase"]
+    },
+    {
+      "entry_reference": "ER-9",
+      "transaction_amount": { "currency": "EUR", "amount": "7.00" },
+      "credit_debit_indicator": "CRDT",
+      "status": "BOOK",
+      "value_date": "2026-09-12",
+      "debtor": { "name": "Employer Ltd" },
+      "remittance_information": ["Reimbursement"]
+    },
+    {
+      "entry_reference": "ER-10",
+      "transaction_amount": { "currency": "EUR", "amount": "-7.00" },
+      "status": "BOOK",
+      "transaction_date": "2026-09-13",
+      "remittance_information": ["Control\u0007Char payment"]
+    }
+  ],
+  "continuation_key": "k2"
+}

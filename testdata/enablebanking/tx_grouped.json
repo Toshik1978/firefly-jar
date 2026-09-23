@@ -1,0 +1,25 @@
+{
+  "transactions": {
+    "booked": [
+      {
+        "entry_reference": "ER-20",
+        "transaction_amount": { "currency": "EUR", "amount": "3.30" },
+        "credit_debit_indicator": "DBIT",
+        "transaction_date": "2026-09-15",
+        "creditor": { "name": "Coffee Shop" },
+        "remittance_information": ["Coffee Shop purchase"]
+      }
+    ],
+    "pending": [
+      {
+        "entry_reference": "ER-21",
+        "transaction_amount": { "currency": "EUR", "amount": "8.80" },
+        "credit_debit_indicator": "DBIT",
+        "transaction_date": "2026-09-16",
+        "creditor": { "name": "Grocery Store" },
+        "remittance_information": ["Grocery Store purchase, pending"]
+      }
+    ]
+  },
+  "continuation_key": null
+}
