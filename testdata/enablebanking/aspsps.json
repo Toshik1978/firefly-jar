@@ -1,0 +1,94 @@
+{
+  "aspsps": [
+    {
+      "name": "Swedbank",
+      "country": "LT",
+      "logo": "https://example.com/logos/swedbank.png",
+      "psu_types": ["personal", "business"],
+      "auth_methods": [
+        {
+          "name": "redirect",
+          "title": "Redirect",
+          "psu_type": "personal",
+          "approach": "REDIRECT",
+          "hidden_method": false
+        }
+      ],
+      "maximum_consent_validity": 15552000,
+      "beta": false,
+      "bic": "EXAMPLT2"
+    },
+    {
+      "name": "Swedbankas",
+      "country": "LT",
+      "logo": "https://example.com/logos/swedbankas.png",
+      "psu_types": ["personal"],
+      "auth_methods": [
+        {
+          "name": "redirect",
+          "title": "Redirect",
+          "psu_type": "personal",
+          "approach": "REDIRECT",
+          "hidden_method": false
+        }
+      ],
+      "maximum_consent_validity": 7776000,
+      "beta": false,
+      "bic": "EXAMPLT3"
+    },
+    {
+      "name": "Revolut",
+      "country": "LT",
+      "logo": "https://example.com/logos/revolut.png",
+      "psu_types": ["personal"],
+      "auth_methods": [
+        {
+          "name": "redirect",
+          "title": "Redirect",
+          "psu_type": "personal",
+          "approach": "REDIRECT",
+          "hidden_method": false
+        }
+      ],
+      "maximum_consent_validity": 7776000,
+      "beta": false,
+      "bic": "EXAMPLT4"
+    },
+    {
+      "name": "Revolut Business",
+      "country": "LT",
+      "logo": "https://example.com/logos/revolut-business.png",
+      "psu_types": ["business"],
+      "auth_methods": [
+        {
+          "name": "redirect",
+          "title": "Redirect",
+          "psu_type": "business",
+          "approach": "REDIRECT",
+          "hidden_method": false
+        }
+      ],
+      "maximum_consent_validity": 7776000,
+      "beta": false,
+      "bic": "EXAMPLT5"
+    },
+    {
+      "name": "Example Bank",
+      "country": "LT",
+      "logo": "https://example.com/logos/example-bank.png",
+      "psu_types": ["personal", "business"],
+      "auth_methods": [
+        {
+          "name": "redirect",
+          "title": "Redirect",
+          "psu_type": "personal",
+          "approach": "REDIRECT",
+          "hidden_method": false
+        }
+      ],
+      "maximum_consent_validity": 2592000,
+      "beta": false,
+      "bic": "EXAMPLT6"
+    }
+  ]
+}

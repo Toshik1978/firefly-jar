@@ -10,4 +10,5 @@ import (
 func TestEnablebanking(t *testing.T) {
 	suite.Run(t, new(SignerSuite))
 	suite.Run(t, new(TransactionsSuite))
+	suite.Run(t, new(AuthSuite))
 }

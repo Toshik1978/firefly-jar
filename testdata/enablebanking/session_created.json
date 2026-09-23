@@ -1,0 +1,39 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000002",
+  "accounts": [
+    {
+      "account_id": {
+        "iban": "LT000000000000000001"
+      },
+      "uid": "00000000-0000-0000-0000-000000000003",
+      "identification_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "identification_hashes": [
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "currency": "EUR",
+      "name": "Example Checking Account",
+      "cash_account_type": "CACC"
+    },
+    {
+      "account_id": {},
+      "uid": "00000000-0000-0000-0000-000000000004",
+      "identification_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "identification_hashes": [
+        "1111111111111111111111111111111111111111111111111111111111111111"
+      ],
+      "currency": "EUR",
+      "name": "Example Card",
+      "cash_account_type": "CARD"
+    }
+  ],
+  "aspsp": {
+    "name": "Swedbank",
+    "country": "LT"
+  },
+  "psu_type": "personal",
+  "access": {
+    "transactions": true,
+    "balances": false,
+    "valid_until": "2027-03-22T09:00:00Z"
+  }
+}

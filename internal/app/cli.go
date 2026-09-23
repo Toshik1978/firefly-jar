@@ -18,7 +18,6 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/config"
 	"github.com/Toshik1978/firefly-jar/internal/logging"
 	"github.com/Toshik1978/firefly-jar/internal/redact"
-	"github.com/Toshik1978/firefly-jar/internal/state"
 )
 
 // Exit codes of contracts/cli.md that the CLI itself decides; a check run's own 0, 1 or 2 comes from
@@ -173,14 +172,14 @@ func (c *cli) checkCommand() *cobra.Command {
 	return cmd
 }
 
-// authCommand builds `auth <bank>`, which is not implemented yet (US2).
+// authCommand builds `auth <bank>`, where <bank> is a key under banks: in config.
 func (c *cli) authCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "auth <bank>",
 		Short: "Authorize read-only access to a bank",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, _ []string) error {
-			c.code = c.notImplemented("auth")
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c.code = c.runAuth(cmd.Context(), args[0])
 
 			return nil
 		},
@@ -240,6 +239,24 @@ func (c *cli) runCheck(ctx context.Context, stdout bool) int {
 // prepare loads the config, validates it for cmd (resolving only cmd's secrets) and loads the
 // state, collecting every warning on the way (FR-030).
 func (c *cli) prepare(cmd config.Command, stdout bool) (BuildInput, []string, error) {
+	in, warnings, err := c.validated(cmd, stdout)
+	if err != nil {
+		return BuildInput{}, warnings, err
+	}
+
+	more, err := in.loadState()
+	warnings = append(warnings, more...)
+
+	if err != nil {
+		return BuildInput{}, warnings, err
+	}
+
+	return in, warnings, nil
+}
+
+// validated loads the config and validates it for cmd, resolving only cmd's secrets. The returned
+// input carries no state yet, so a command can reject its own arguments before the state is read.
+func (c *cli) validated(cmd config.Command, stdout bool) (BuildInput, []string, error) {
 	cfg, warnings, err := config.Load(config.ResolvePath(c.configPath, c.env.Getenv), c.env.Getenv)
 	if err != nil {
 		return BuildInput{}, warnings, fmt.Errorf("load: %w", err)
@@ -252,19 +269,11 @@ func (c *cli) prepare(cmd config.Command, stdout bool) (BuildInput, []string, er
 		return BuildInput{}, warnings, fmt.Errorf("validate: %w", err)
 	}
 
-	st, more, err := state.Load(cfg.StateFile)
-	warnings = append(warnings, more...)
-
-	if err != nil {
-		return BuildInput{}, warnings, fmt.Errorf("load state: %w", err)
-	}
-
 	return BuildInput{
 		Command: cmd,
 		Stdout:  stdout,
 		Config:  cfg,
 		Secrets: secrets,
-		State:   st,
 		Env:     c.env,
 	}, warnings, nil
 }

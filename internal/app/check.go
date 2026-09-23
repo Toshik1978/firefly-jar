@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"maps"
 	"slices"
 	"time"
 
@@ -20,21 +21,23 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
 
-// Deps is everything one check run needs, built by the caller so the run itself never reads the
-// environment, the console or the real clock. State is read, never written: check remembers
-// nothing between runs (FR-012). Close, when set, releases what the builder opened (the log file);
-// the CLI calls it once the command is done, and Check itself never does.
+// Deps is everything one command run needs, built by the caller so the run itself never reads the
+// environment, the console or the real clock. Check reads State and never writes it: check remembers
+// nothing between runs (FR-012); only auth saves it. Authorizer is set for auth alone, so check and
+// accounts can never start or revoke a consent. Close, when set, releases what the builder opened
+// (the log file); the CLI calls it once the command is done, and Check itself never does.
 type Deps struct {
-	Config    *config.Config
-	State     *state.State
-	Provider  bank.Provider
-	Firefly   *firefly.Client
-	Notifiers []notify.Notifier
-	Redactor  *redact.Redactor
-	Log       *slog.Logger
-	Now       func() time.Time
-	Stdout    io.Writer
-	Close     func()
+	Config     *config.Config
+	State      *state.State
+	Provider   bank.Provider
+	Authorizer bank.Authorizer
+	Firefly    *firefly.Client
+	Notifiers  []notify.Notifier
+	Redactor   *redact.Redactor
+	Log        *slog.Logger
+	Now        func() time.Time
+	Stdout     io.Writer
+	Close      func()
 }
 
 // CheckOptions are the check command's flags. Stdout prints the digest instead of sending it
@@ -43,10 +46,12 @@ type CheckOptions struct {
 	Stdout bool
 }
 
-// checkRun is one run's fixed context: the dependencies and the dates derived once from a single
-// clock reading, so every account in the run is judged against the same "today" (FR-004).
+// checkRun is one run's fixed context: the dependencies, the single clock reading in the configured
+// zone and the dates derived from it, so every account and every consent in the run is judged
+// against the same instant and the same "today" (FR-004).
 type checkRun struct {
 	deps      Deps
+	now       time.Time
 	today     civil.Date
 	window    domain.Window
 	tolerance int
@@ -69,10 +74,12 @@ func Check(ctx context.Context, deps Deps, opts CheckOptions) (report.RunReport,
 // newCheckRun reads the clock exactly once and derives today and the window from it in the
 // configured time zone, whatever location the clock's own value carries.
 func newCheckRun(deps Deps) *checkRun {
-	today := civil.DateOf(deps.Now().In(deps.Config.Location))
+	now := deps.Now().In(deps.Config.Location)
+	today := civil.DateOf(now)
 
 	return &checkRun{
 		deps:      deps,
+		now:       now,
 		today:     today,
 		window:    domain.NewWindow(today, deps.Config.WindowDays),
 		tolerance: deps.Config.DateToleranceDays,
@@ -83,6 +90,8 @@ func newCheckRun(deps Deps) *checkRun {
 // problem that stops the run before any bank call, since no bank account could be mapped anyway.
 func (r *checkRun) reconcileAll(ctx context.Context) report.RunReport {
 	rep := report.RunReport{Window: r.window}
+
+	r.warnStaleSessions(ctx)
 
 	ffAccounts, err := r.deps.Firefly.ListAccounts(ctx)
 	if err != nil {
@@ -95,33 +104,47 @@ func (r *checkRun) reconcileAll(ctx context.Context) report.RunReport {
 		return rep
 	}
 
-	for _, key := range r.sessionBanks() {
-		session := r.deps.State.Sessions[key]
-
-		mappings := mapping.Resolve(bankAccounts(key, &session), ffAccounts, r.deps.Config.Accounts)
-		for i := range mappings {
-			rep.Accounts = append(rep.Accounts, r.checkAccount(ctx, session.SessionID, mappings[i]))
-		}
+	for _, key := range configuredBanks(r.deps.Config.Banks) {
+		r.reconcileBank(ctx, &rep, key, ffAccounts)
 	}
 
 	return rep
 }
 
-// sessionBanks returns the keys of the configured banks that have a session in the state, sorted
-// so every run visits them in the same order. A session for a bank no longer configured is
-// ignored.
-func (r *checkRun) sessionBanks() []string {
-	keys := make([]string, 0, len(r.deps.State.Sessions))
-
-	for key := range r.deps.State.Sessions {
-		if _, ok := r.deps.Config.Banks[key]; ok {
-			keys = append(keys, key)
-		}
+// reconcileBank adds one configured bank's accounts to rep. An expired consent unchecks every
+// account without a bank call; once the provider reports the consent expired or revoked for one
+// account, the rest of the bank's accounts are unchecked the same way rather than asked for again.
+func (r *checkRun) reconcileBank(ctx context.Context, rep *report.RunReport, key string, ffAccounts []firefly.Account) {
+	session, ok := r.usableSession(ctx, rep, key)
+	if !ok {
+		return
 	}
 
-	slices.Sort(keys)
+	var (
+		lostCode report.UncheckedCode
+		lost     bool
+	)
 
-	return keys
+	switch consentState(session, r.now, r.deps.Config.ConsentWarnDays) {
+	case consentExpired:
+		lostCode, lost = report.ConsentExpired, true
+	case consentExpiring:
+		rep.ConsentWarnings = append(rep.ConsentWarnings, r.consentWarning(key, session))
+	case consentOK:
+	}
+
+	mappings := mapping.Resolve(bankAccounts(key, session), ffAccounts, r.deps.Config.Accounts)
+	for i := range mappings {
+		if lost {
+			rep.Accounts = append(rep.Accounts, r.consentUnchecked(ctx, mappings[i], lostCode))
+
+			continue
+		}
+
+		res := r.checkAccount(ctx, session.SessionID, mappings[i])
+		lostCode, lost = consentLost(&res)
+		rep.Accounts = append(rep.Accounts, res)
+	}
 }
 
 // deliver renders the digest when the report needs one and either prints it (--stdout) or fans it
@@ -181,4 +204,10 @@ func bankAccounts(key string, session *state.Session) []bank.Account {
 	}
 
 	return accounts
+}
+
+// configuredBanks returns the configured bank keys sorted, so every run visits them in the same
+// order.
+func configuredBanks(banks map[string]config.Bank) []string {
+	return slices.Sorted(maps.Keys(banks))
 }

@@ -11,4 +11,7 @@ func TestApp(t *testing.T) {
 	suite.Run(t, new(CheckSuite))
 	suite.Run(t, new(CLISuite))
 	suite.Run(t, new(AcceptanceUS1Suite))
+	suite.Run(t, new(AuthCommandSuite))
+	suite.Run(t, new(ConsentSuite))
+	suite.Run(t, new(AcceptanceUS2Suite))
 }

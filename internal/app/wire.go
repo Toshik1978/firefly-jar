@@ -18,6 +18,10 @@ import (
 	"github.com/Toshik1978/firefly-jar/internal/state"
 )
 
+// authProvider names the bank-data provider whose Authorizer auth drives. Enable Banking is the only
+// provider today, and the session it creates records the same name (contracts/state.md).
+const authProvider = "enablebanking"
+
 // BuildInput is what a Factory builds one command's dependencies from: the command and its
 // --stdout flag, the loaded config, the secrets ValidateFor resolved for that command (and only
 // those), the loaded state, and the run's environment.
@@ -30,11 +34,23 @@ type BuildInput struct {
 	Env     Env
 }
 
+// loadState reads the state file the config names into in.State and returns the warnings it raised.
+func (in *BuildInput) loadState() ([]string, error) {
+	st, warnings, err := state.Load(in.Config.StateFile)
+	if err != nil {
+		return warnings, fmt.Errorf("load state: %w", err)
+	}
+
+	in.State = st
+
+	return warnings, nil
+}
+
 // BuildDeps is the production Factory. It builds per command (contracts/config.md): the Redactor
 // from the resolved secrets and the state's session ids; the logger, which writes the JSON log file
-// only for check; the Enable Banking client for every command; the Firefly III client for accounts
-// and check; and the notifiers only for check without --stdout, one per configured channel. The
-// returned Deps.Close releases the log file.
+// only for check; the Enable Banking client for every command; the Authorizer only for auth; the
+// Firefly III client for accounts and check; and the notifiers only for check without --stdout, one
+// per configured channel. The returned Deps.Close releases the log file.
 func BuildDeps(_ context.Context, in BuildInput) (Deps, error) {
 	redactor := newRedactor(in.Secrets, in.State)
 
@@ -43,15 +59,25 @@ func BuildDeps(_ context.Context, in BuildInput) (Deps, error) {
 		return Deps{}, err
 	}
 
+	eb := newEnableBanking(in, redactor)
+
 	deps := Deps{
 		Config:   in.Config,
 		State:    in.State,
-		Provider: newEnableBanking(in, redactor),
+		Provider: eb,
 		Redactor: redactor,
 		Log:      log,
 		Now:      in.Env.Now,
 		Stdout:   in.Env.Stdout,
 		Close:    closeLog,
+	}
+
+	if in.Command == config.CmdAuth {
+		if err = setAuthorizer(&deps, authProvider, eb, in.Config.EnableBanking); err != nil {
+			closeLog()
+
+			return Deps{}, err
+		}
 	}
 
 	if in.Command != config.CmdAuth {
@@ -108,6 +134,20 @@ func newEnableBanking(in BuildInput, r *redact.Redactor) *enablebanking.Client {
 	signer := enablebanking.NewSigner(in.Config.EnableBanking.AppID, in.Secrets.PrivateKey, in.Env.Now)
 
 	return enablebanking.New(enablebanking.DefaultBaseURL, hc, signer, r)
+}
+
+// setAuthorizer picks the Authorizer implementation by provider name. The Enable Banking client
+// gets the redirect URL and PSU type only here, because Begin needs them and the fixed
+// bank.Authorizer signature has no room for them.
+func setAuthorizer(deps *Deps, provider string, eb *enablebanking.Client, cfg config.EnableBanking) error {
+	switch provider {
+	case authProvider:
+		deps.Authorizer = eb.WithAuthConfig(cfg.RedirectURL, cfg.PSUType)
+
+		return nil
+	default:
+		return fmt.Errorf("unknown bank provider %q", provider)
+	}
 }
 
 // newNotifiers builds one notifier per configured channel. Telegram gets a time-bounded client

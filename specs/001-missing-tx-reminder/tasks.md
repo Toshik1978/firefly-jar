@@ -677,10 +677,10 @@ before consent expires and reports expired, revoked or missing sessions (FR-020,
 saved with mode 0600. A session expiring in 5 days produces a digest consent warning with exit unchanged. An
 expired session makes its accounts unchecked with exit 2.
 
-- [ ] T057 [P] [US2] Add fixtures `testdata/enablebanking/aspsps.json` (includes `maximum_consent_validity:
+- [x] T057 [P] [US2] Add fixtures `testdata/enablebanking/aspsps.json` (includes `maximum_consent_validity:
   15552000`), `auth_start.json` and `session_created.json` (two accounts, one without `account_id.iban`), plus
   error `err_already_authorized.json`.
-- [ ] T058 [P] [US2] (FR-002, FR-018, FR-022) Write `AuthSuite` in `internal/bank/enablebanking/auth_test.go`:
+- [x] T058 [P] [US2] (FR-002, FR-018, FR-022) Write `AuthSuite` in `internal/bank/enablebanking/auth_test.go`:
   - `FindASPSP(ctx, name, country, psuType)` calls `GET /aspsps?country=LT&psu_type=personal&service=AIS` and
     matches the name exactly. A missing bank gives an error listing close names.
   - `StartAuth` body:
@@ -699,7 +699,7 @@ expired session makes its accounts unchecked with exit 2.
       `identification_hash`, `account_id.iban` (may be empty), `currency` and `name`;
     - POST is **not retried**: a server returning 500 is hit exactly once.
   - `DeleteSession(id)` sends `DELETE /sessions/{id}`.
-- [ ] T059 [US2] Implement `internal/bank/enablebanking/auth.go` (`FindASPSP`, `StartAuth`, `ParseRedirect`,
+- [x] T059 [US2] Implement `internal/bank/enablebanking/auth.go` (`FindASPSP`, `StartAuth`, `ParseRedirect`,
   `CreateSession`, `DeleteSession`). Add `Authorizer` methods on the client satisfying `bank.Authorizer`:
   - `Begin` = `FindASPSP` + `StartAuth`;
   - `Complete` = `ParseRedirect` + `CreateSession`, mapped to `state.Session{Provider: "enablebanking", …}`;
@@ -707,7 +707,7 @@ expired session makes its accounts unchecked with exit 2.
   - Add a compile-time assertion `var _ bank.Authorizer = (*Client)(nil)` inside a function or test, since
     package-level vars are banned.
   - Make T058 pass.
-- [ ] T060 [P] [US2] Write `AuthCommandSuite` in `internal/app/auth_test.go`. It scripts stdin with the pasted URL
+- [x] T060 [P] [US2] Write `AuthCommandSuite` in `internal/app/auth_test.go`. It scripts stdin with the pasted URL
   and injects a **fake `bank.Authorizer`**, so `app` never imports `enablebanking` in tests.
   - **Success**:
     - The output matches contracts/cli.md: `Open this link and log in to <Name> (<CC>):`, the URL, a paste
@@ -720,10 +720,10 @@ expired session makes its accounts unchecked with exit 2.
     - A state mismatch or `error=` gives exit 2 and a byte-identical state file.
     - An unknown bank key gives exit 2 before any network call.
     - A provider error gives exit 2 with nothing saved.
-- [ ] T061 [US2] Implement `internal/app/auth.go` against `bank.Authorizer` only. `wire.go` selects the
+- [x] T061 [US2] Implement `internal/app/auth.go` against `bank.Authorizer` only. `wire.go` selects the
   implementation from the provider name (`enablebanking` for now). Wire `auth <bank>` in
   `internal/app/cli.go`. Make T060 pass.
-- [ ] T062 [P] [US2] Write `ConsentSuite` in `internal/app/consent_test.go`, using the fixed clock and states. Each
+- [x] T062 [P] [US2] Write `ConsentSuite` in `internal/app/consent_test.go`, using the fixed clock and states. Each
   row of the data-model consent table is covered:
   - `now < ValidUntil − warn_days` → OK, no warning.
   - Expiring in 5 days with `warn_days` 7 → `ConsentWarning{DaysLeft: 5}`, accounts still checked, exit
@@ -734,9 +734,9 @@ expired session makes its accounts unchecked with exit 2.
     bank are unchecked with the matching code, and other banks are still checked.
   - A configured bank with no session → `Problem` "not authorized — run: firefly-jar auth <bank>", exit 2.
   - A state session for a bank no longer in config → WARN, ignored.
-- [ ] T063 [US2] Implement `internal/app/consent.go` (`consentState(session, now, warnDays)`) and integrate it into
+- [x] T063 [US2] Implement `internal/app/consent.go` (`consentState(session, now, warnDays)`) and integrate it into
   `internal/app/check.go`. Make T062 pass along with every earlier `internal/app` suite.
-- [ ] T064 [US2] Write the US2 acceptance test `internal/app/acceptance_us2_test.go` covering spec US2 scenarios 1–5
+- [x] T064 [US2] Write the US2 acceptance test `internal/app/acceptance_us2_test.go` covering spec US2 scenarios 1–5
   end to end.
 
 **Checkpoint**: The bank connection lifecycle works, and consent problems are always visible.

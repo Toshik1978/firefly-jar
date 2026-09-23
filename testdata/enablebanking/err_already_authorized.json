@@ -1,0 +1,6 @@
+{
+  "message": "PSU already has an authorized session for this ASPSP",
+  "code": 400,
+  "error": "ALREADY_AUTHORIZED",
+  "detail": "Close the existing session before starting a new authorization"
+}
