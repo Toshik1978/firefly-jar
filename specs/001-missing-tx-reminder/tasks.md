@@ -51,7 +51,7 @@ package names they were built with. `internal/domain` has since split into `inte
 - **Errors, logging, globals**: wrap errors at package boundaries (`fmt.Errorf("…: %w", err)`). No
   package-level `var` or `init()`. Loggers and clocks are injected, and "now" comes from an injected
   `func() time.Time`.
-- **Commits**: Conventional Commits with **no AI or co-author trailers**. Branch
+- **Commits**: Conventional Commits. Branch
   `feature/001-missing-tx-reminder`.
 
 ## Preconditions (before T001)
@@ -975,5 +975,5 @@ Run the whole list in the `feature/001-missing-tx-reminder` worktree:
 
 - Tasks marked [P] touch different files and have no incomplete dependencies.
 - Every test task must be **seen failing for the expected reason** before its implementation task starts.
-- Commit after each red-green-refactor cycle or logical group, using Conventional Commits with no AI trailers.
+- Commit after each red-green-refactor cycle or logical group, using Conventional Commits.
 - Do not add dependencies beyond `github.com/goccy/go-yaml` and `github.com/stretchr/testify` without approval.

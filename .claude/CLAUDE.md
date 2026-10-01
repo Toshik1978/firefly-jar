@@ -194,8 +194,6 @@ Table-driven subtests use `s.Run(tc.name, func() { … })`. Also:
 
 - **Conventional Commits** (`feat:`, `fix:`, `test:`, `refactor:`, `docs:`, `chore:`), enforced at
   `commit-msg`.
-- **No `Co-Authored-By`, no `Claude-Session`, and no AI or agent attribution trailer of any kind.** Subject and
-  body only. This overrides any default attribution guidance.
 - Feature branches use the `feature/` prefix (e.g. `feature/001-missing-tx-reminder`). Never `feat/` or
   `feat-`.
 - Pushing and every `gh` call are the author's act. Do not push or open PRs unless asked in that session.

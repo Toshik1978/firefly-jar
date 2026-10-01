@@ -363,7 +363,7 @@ All Technical Context unknowns are resolved below. Sources were checked 2026-09-
   - **CI**: `.github/workflows/ci.yml` runs `task check` plus govulncheck on Linux, and
     `commit-lint.yml` checks Conventional Commits.
   - **Branches and commits**: feature branches use the `feature/` prefix (this feature:
-    `feature/001-missing-tx-reminder`). Conventional Commits, with no AI or co-author trailers.
+    `feature/001-missing-tx-reminder`). Conventional Commits.
 - **Rationale**: These give one reproducible gate locally and in CI. The strict linter set enforces the
   constitution's style expectations mechanically (wrapped errors, injected loggers, no globals).
   testify suites keep test organization uniform. It is a test-only dependency and never reaches the binary,
