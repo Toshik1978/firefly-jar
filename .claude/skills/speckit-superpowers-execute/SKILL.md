@@ -1,11 +1,16 @@
 ---
 name: speckit-superpowers-execute
-description: Import this feature's tasks.md into beads and execute it with the superpowers workflow
+description: Import this feature's tasks.md into beads and execute it with the superpowers
+  workflow
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: Anton Krivenko
-  source: superpowers:commands/execute.md
+  source: extension:superpowers
+user-invocable: true
+disable-model-invocation: false
 ---
+
+# Superpowers Execute Skill
 
 Invoke the `superpowers:using-spec-kit` skill with the Skill tool and follow it from its
 **2. Import** step, for the feature directory in `$ARGUMENTS` if one is given, else the active
