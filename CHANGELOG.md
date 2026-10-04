@@ -9,6 +9,24 @@ Versions follow [semver](https://semver.org). Commits follow
 
 ---
 
+## v1.0.1 — 2026-10-04
+
+A bug-fix release. Over a weekend or bank holiday, a bank can date a pending card payment with the
+next business day, which is after today. Those entries fell outside the check window and were never
+reported, so a purchase you had not entered stayed invisible until the bank booked it. They are now
+checked like any other transaction and shown with the date the bank gave them. No configuration
+changes are needed.
+
+### Bug Fixes
+
+- fix: check bank entries dated after today ([9d9f2f7](https://github.com/Toshik1978/firefly-jar/commit/9d9f2f75b558df3f6007b2e2b4aaef6c8cd76666))
+
+### Others
+
+- docs: drop the AI attribution rule ([ba155db](https://github.com/Toshik1978/firefly-jar/commit/ba155db38ebfdd6359db5fee292fbbce1d1010ca))
+
+---
+
 ## v1.0.0 — 2026-09-23
 
 The first release. `firefly-jar` is a one-shot command that cron runs on a Linux server: it fetches
