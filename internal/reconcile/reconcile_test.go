@@ -431,22 +431,40 @@ func (s *ReconcileSuite) currencyAndSignCases() []reconcileCase {
 	}
 }
 
-// windowCases pin data-model step 1: a transaction outside the window is in no count and never
-// consumes a Firefly entry.
+// windowCases pin data-model step 1: a transaction dated before the window is in no count and
+// never consumes a Firefly entry, while one dated after today is checked like any other (FR-004a).
 func (s *ReconcileSuite) windowCases() []reconcileCase {
 	return []reconcileCase{
 		{
-			name: "bank transactions outside the window are excluded from every count",
+			name: "bank transactions before the window are excluded from every count",
 			txs: []bank.Transaction{
 				s.booked("ow-before", "2026-08-24", "-2.00"),
 				s.booked("ow-in", "2026-08-26", "-2.00"),
-				s.booked("ow-after", "2026-09-24", "-2.50"),
 				s.voided("ow-void", "2026-08-20", "-3.00"),
 				s.pending("ow-pending", "2026-08-24", "-4.00"),
 			},
 			entries:   []firefly.Entry{s.eurEntry("561", "2026-08-25", "-2.00")},
 			tolerance: defaultTolerance,
 			matched:   []wantPair{{label: "ow-in", groupID: "561"}},
+		},
+		{
+			name: "a pending transaction dated after today is reported, not dropped",
+			txs: []bank.Transaction{
+				withRef(s.pending("ow-weekend", "2026-09-25", "-2.50"), ""),
+				s.booked("ow-later", "2026-10-30", "-2.70"),
+			},
+			tolerance: defaultTolerance,
+			missing: []wantMissing{
+				{label: "ow-weekend", pending: true},
+				{label: "ow-later"},
+			},
+		},
+		{
+			name:      "a transaction dated after today matches an entry within tolerance",
+			txs:       []bank.Transaction{withRef(s.pending("ow-monday", "2026-09-25", "-2.80"), "")},
+			entries:   []firefly.Entry{s.eurEntry("562", "2026-09-22", "-2.80")},
+			tolerance: defaultTolerance,
+			matched:   []wantPair{{label: "ow-monday", groupID: "562"}},
 		},
 		{
 			name:      "a transaction on window.To is checked and is not a last reminder",
@@ -944,13 +962,14 @@ func (s *ReconcileSuite) assertCarriedThrough(got reconcile.Result, txs []bank.T
 	}
 }
 
-// inWindow counts the bank transactions dated inside the window, before deduplication, computed
-// from the test's own input and independently of Reconcile.
+// inWindow counts the bank transactions dated on or after the window's first day, before
+// deduplication, computed from the test's own input and independently of Reconcile. A transaction
+// dated after today counts too (FR-004a), so no upper bound applies.
 func (s *ReconcileSuite) inWindow(txs []bank.Transaction) int {
 	n := 0
 
 	for i := range txs {
-		if d := txs[i].Date; !d.Before(s.window.From) && !d.After(s.window.To) {
+		if d := txs[i].Date; !d.Before(s.window.From) {
 			n++
 		}
 	}

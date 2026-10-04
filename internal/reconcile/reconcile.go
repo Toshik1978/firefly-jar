@@ -2,7 +2,8 @@
 // it compares one account's bank transactions with that account's Firefly III entries
 // (data-model.md "Reconciliation", FR-007, FR-008, FR-010, FR-011, FR-025a, FR-026).
 //
-// Invariant: every bank transaction dated in the window is accounted for exactly once, so
+// Invariant: every bank transaction dated on or after the window's first day, including one dated
+// after today (FR-004a), is accounted for exactly once, so
 // len(inWindow) == len(Matched) + len(Missing) + Deduplicated + Void. Reconcile never drops a
 // transaction silently. It performs no I/O, logs nothing, never modifies its inputs, and gives the
 // same Result for any ordering of them.
@@ -45,8 +46,8 @@ type Missing struct {
 	Hint         *Hint
 }
 
-// Reconcile follows data-model.md "Reconciliation" steps 1-6: it keeps the transactions dated in
-// w, sets void ones aside, drops pending copies whose booked twin is also in w, and then pairs each
+// Reconcile follows data-model.md "Reconciliation" steps 1-6: it keeps the transactions dated on
+// or after w.From, sets void ones aside, drops pending copies whose booked twin is also in w, and then pairs each
 // remaining transaction greedily, in the Result order, with the earliest unused entry of exactly
 // the same signed amount and currency whose date lies within tolerance days. Every transaction left
 // unpaired is reported as Missing.
@@ -84,15 +85,18 @@ func Reconcile(txs []bank.Transaction, entries []firefly.Entry, tolerance int, w
 	return res
 }
 
-// screen applies steps 1 and 2 to a copy of txs: it keeps the transactions dated in w, counts and
-// sets aside void ones, and counts and drops each pending copy that shares a non-empty EntryRef
-// with a booked transaction also in w (research R6). It returns what is left to match.
+// screen applies steps 1 and 2 to a copy of txs: it keeps the transactions dated on or after
+// w.From, counts and sets aside void ones, and counts and drops each pending copy that shares a
+// non-empty EntryRef with a booked transaction also kept (research R6). It returns what is left to
+// match. A transaction dated after w.To is kept (FR-004a): a bank may stamp a pending entry with
+// the business day it expects to book it, which over a weekend or holiday is after today, and
+// dropping it would lose the entry silently until that day comes.
 func (r *Result) screen(txs []bank.Transaction, w civil.Range) []bank.Transaction {
 	inWindow := make([]bank.Transaction, 0, len(txs))
 
 	for i := range txs {
 		switch {
-		case !w.Contains(txs[i].Date):
+		case txs[i].Date.Before(w.From):
 		case txs[i].Status == bank.Void:
 			r.Void++
 		default:

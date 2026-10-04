@@ -165,6 +165,8 @@ with the "check failed" outcome. Make one of two notifiers fail. The other still
   destination account. Each side is matched against its own bank account.
 - **Window boundaries**: Firefly III transactions are considered up to the tolerance before the window start and
   after today, so a bank transaction near the edge still finds its counterpart.
+- **Bank dates after today**: over a weekend or bank holiday, a bank can date a pending entry with the next
+  business day. Such an entry is checked like any other (FR-004a) and shown with the bank's date.
 - **Firefly III transactions with no bank counterpart** (cash, manual accounts, entries made in advance) are
   never reported.
 - **Pending and booked copies of one purchase**: if the bank links them with the same transaction identifier,
@@ -201,6 +203,9 @@ with the "check failed" outcome. Make one of two notifiers fail. The other still
   Scheduling is external (cron). The system MUST NOT run as a background service.
 - **FR-004**: The check window MUST be the last N days up to and including today in a configured time zone
   (N configurable, default 30).
+- **FR-004a**: A bank transaction dated after today (a bank may stamp a pending entry with the business day it
+  expects to book it, which over a weekend or bank holiday is after today) MUST be checked as if it were in the
+  window, never left out of it.
 - **FR-005**: The system MUST retrieve both booked and pending bank transactions dated within the window, for
   every connected, mapped, non-excluded account, including all result pages.
 - **FR-005a**: A bank transaction's date (used for the window, matching and the "last reminder" flag) MUST be

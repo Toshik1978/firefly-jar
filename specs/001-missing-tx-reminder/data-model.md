@@ -136,7 +136,8 @@ within 2× the tolerance. It is informational only and never changes a match.
 `BankError`, `BankDataIncomplete`, `FireflyError`, `FireflyDataIncomplete`, `Unmapped`, `Ambiguous`, `OverrideTargetMissing`.
 
 ### Algorithm (FR-007, FR-008, FR-010, FR-011)
-1. Keep bank transactions with `Date` in the window (`inWindow`). Count `Void` and set those entries aside.
+1. Keep bank transactions with `Date` on or after `window.From` (`inWindow`), including one dated after today
+   (FR-004a). Count `Void` and set those entries aside.
 2. Deduplicate within `inWindow`: for each `EntryRef` present on both a Booked and a Pending entry, drop the
    Pending one and increment `Deduplicated`. A pending copy whose booked twin falls outside the window stays.
 3. Group bank transactions and Firefly entries by `(Amount.Currency, Amount value)`. The account is fixed per
@@ -153,7 +154,7 @@ within 2× the tolerance. It is informational only and never changes a match.
    or paired entries with `tolerance < |Δ| ≤ 2×tolerance` (`NearMiss`). Pick the one with the smallest `|Δ|`,
    breaking ties by earlier date and then group id (the numeric rule of step 4). A Taken candidate is always
    nearer than a NearMiss one, so the two kinds never tie. No candidates → `Hint = nil`.
-7. Invariant, asserted in tests. With `inWindow` = fetched transactions dated in the window, before
+7. Invariant, asserted in tests. With `inWindow` = fetched transactions dated on or after `window.From`, before
    deduplication: `len(inWindow) == len(Matched) + len(Missing) + Deduplicated + Void`. Nothing is dropped
    silently (FR-011).
 

@@ -89,7 +89,9 @@ The shared leaves import nothing from this repository:
 `reconcile.Reconcile` compares one account's bank transactions with its Firefly III entries. Every
 bank transaction dated in the window ends up in exactly one bucket: matched, missing, deduplicated
 (a pending copy of a transaction the bank also reports as booked) or void (cancelled, rejected,
-scheduled, or a zero amount such as a card check). The tests assert
+scheduled, or a zero amount such as a card check). A transaction the bank dates after today counts
+as in the window: over a weekend or bank holiday a bank can date a pending entry with the next
+business day, and leaving it out would hide it until then. The tests assert
 `inWindow == matched + missing + deduplicated + void` for every scenario, so a transaction cannot
 vanish without failing the build.
 
