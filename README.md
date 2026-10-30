@@ -148,6 +148,12 @@ saved and the command exits 2.
 Re-running `auth` for a bank you already connected replaces that bank's saved session — but only
 after the new session is obtained, so a failed re-authorization never destroys a working one.
 
+If your Enable Banking application runs in restricted mode (activated by linking your own accounts),
+the session only ever contains accounts that are also listed under the application's "Linked
+accounts" in the Enable Banking control panel. Any other account you select at the bank is silently
+dropped, and `auth` reports a smaller count than you selected. After opening a new bank account, link
+it to the application in the control panel first, then re-run `auth` and select it at the bank.
+
 ### Verify account coverage: `accounts --ids`
 
 ```text
