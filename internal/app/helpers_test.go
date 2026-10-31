@@ -71,6 +71,9 @@ type configOpts struct {
 	telegram          bool
 	telegramTokenFile string
 	telegramChatIDs   []int64
+	// telegramThreadID and telegramSilent render the optional thread_id: and silent: keys.
+	telegramThreadID  *int64
+	telegramSilent    bool
 	email             bool
 	emailPasswordFile string
 	// emailHost overrides the default smtp.example.com when set (PrivacySuite's fake SMTP server).
@@ -151,6 +154,14 @@ func writeConfigNotify(b *strings.Builder, o configOpts) {
 		b.WriteString("  telegram:\n")
 		fmt.Fprintf(b, "    bot_token_file: %s\n", o.telegramTokenFile)
 		fmt.Fprintf(b, "    chat_ids: [%s]\n", formatChatIDs(o.telegramChatIDs))
+
+		if o.telegramThreadID != nil {
+			fmt.Fprintf(b, "    thread_id: %d\n", *o.telegramThreadID)
+		}
+
+		if o.telegramSilent {
+			b.WriteString("    silent: true\n")
+		}
 	}
 
 	if o.email {

@@ -32,6 +32,10 @@ type sendMessageRequest struct {
 	Text               string             `json:"text"`
 	ChatID             int64              `json:"chat_id"`
 	LinkPreviewOptions linkPreviewOptions `json:"link_preview_options"`
+	// The two fields below are omitted when unset, so a notifier without options sends the exact
+	// bytes it always did.
+	MessageThreadID     int64 `json:"message_thread_id,omitempty"`
+	DisableNotification bool  `json:"disable_notification,omitempty"`
 }
 
 // linkPreviewOptions turns off link previews, which would otherwise expand a URL that happens to

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -39,12 +40,39 @@ type Notifier struct {
 	endpoint string
 	secrets  []string
 	chatIDs  []int64
+	logger   *slog.Logger
+	threadID int64
+	silent   bool
+}
+
+// Option configures a Notifier built by New.
+type Option func(*Notifier)
+
+// WithThread sends every message into the forum topic whose message_thread_id is id.
+func WithThread(id int64) Option {
+	return func(n *Notifier) { n.threadID = id }
+}
+
+// WithSilent sets disable_notification on every message, so Telegram delivers it without a sound.
+func WithSilent(silent bool) Option {
+	return func(n *Notifier) { n.silent = silent }
+}
+
+// WithLogger sets the logger the notifier reports to. A nil logger keeps the default, which
+// discards everything.
+func WithLogger(logger *slog.Logger) Option {
+	return func(n *Notifier) {
+		if logger != nil {
+			n.logger = logger
+		}
+	}
 }
 
 // New returns a Notifier that posts through hc to baseURL's sendMessage method for token, once
 // per chat id, in the order given. An empty baseURL means the public Bot API; tests point it at a
-// fake. A nil hc means http.DefaultClient.
-func New(token string, chatIDs []int64, hc *http.Client, baseURL string) *Notifier {
+// fake. A nil hc means http.DefaultClient. Without options it sends plain, audible messages to
+// each chat itself, and logs nothing.
+func New(token string, chatIDs []int64, hc *http.Client, baseURL string, opts ...Option) *Notifier {
 	if hc == nil {
 		hc = http.DefaultClient
 	}
@@ -53,12 +81,19 @@ func New(token string, chatIDs []int64, hc *http.Client, baseURL string) *Notifi
 		baseURL = defaultBaseURL
 	}
 
-	return &Notifier{
+	n := &Notifier{
 		hc:       hc,
 		endpoint: strings.TrimRight(baseURL, "/") + "/bot" + token + "/sendMessage",
 		secrets:  tokenSecrets(token),
 		chatIDs:  slices.Clone(chatIDs),
+		logger:   slog.New(slog.DiscardHandler),
 	}
+
+	for _, opt := range opts {
+		opt(n)
+	}
+
+	return n
 }
 
 // Name reports the channel name, "telegram".
@@ -99,7 +134,7 @@ func (n *Notifier) sendParts(ctx context.Context, chatID int64, parts []string) 
 			}
 		}
 
-		if err := n.sendPart(ctx, chatID, text); err != nil {
+		if err := n.sendPart(ctx, chatID, text, n.threadID != 0); err != nil {
 			if len(parts) == 1 {
 				return err
 			}
@@ -112,13 +147,20 @@ func (n *Notifier) sendParts(ctx context.Context, chatID int64, parts []string) 
 }
 
 // sendPart posts one message, retrying as the attempt's outcome allows, at most maxRetries times.
-// Retries are not paced by partGap: the wait they get is the one the failure asked for.
-func (n *Notifier) sendPart(ctx context.Context, chatID int64, text string) error {
-	body, err := json.Marshal(sendMessageRequest{
-		Text:               text,
-		ChatID:             chatID,
-		LinkPreviewOptions: linkPreviewOptions{IsDisabled: true},
-	})
+// Retries are not paced by partGap: the wait they get is the one the failure asked for. withThread
+// says whether the configured topic goes into the request, so a caller can send to the chat itself.
+func (n *Notifier) sendPart(ctx context.Context, chatID int64, text string, withThread bool) error {
+	req := sendMessageRequest{
+		Text:                text,
+		ChatID:              chatID,
+		LinkPreviewOptions:  linkPreviewOptions{IsDisabled: true},
+		DisableNotification: n.silent,
+	}
+	if withThread {
+		req.MessageThreadID = n.threadID
+	}
+
+	body, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}

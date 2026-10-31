@@ -56,6 +56,14 @@ type PrivacySuite struct {
 	suite.Suite
 
 	vilnius *time.Location
+
+	// topic makes the next harness's Telegram config carry thread_id and silent: true.
+	topic bool
+}
+
+// SetupTest clears per-case switches so one case's config never leaks into the next.
+func (s *PrivacySuite) SetupTest() {
+	s.topic = false
 }
 
 // SetupSuite loads the configured time zone once.
@@ -100,6 +108,19 @@ func (s *PrivacySuite) TestSuccessfulDeliveryCarriesTheDescriptionButNeverASecre
 	s.Contains(telegramBodies, privacyDescription, "the digest delivered to Telegram must name the missing transaction")
 	s.Contains(emailData, privacyDescription, "the digest delivered by email must name the missing transaction")
 	s.Contains(telegramBodies, checkHeading, "the masked IBAN may reach a delivered digest")
+}
+
+// TestTelegramRequestCarriesConfiguredThreadAndSilent covers T003 end to end: thread_id and
+// silent: true in the config reach the Bot API request through BuildDeps.
+func (s *PrivacySuite) TestTelegramRequestCarriesConfiguredThreadAndSilent() {
+	s.topic = true
+	h := s.newHarness(false)
+
+	s.Equal(1, h.run())
+
+	bodies := h.telegram.allBodies()
+	s.Contains(bodies, `"message_thread_id":4242`)
+	s.Contains(bodies, `"disable_notification":true`)
 }
 
 // TestSkippedFireflySplitIsLoggedAtDebugWithoutItsDescription covers research R8's "a split not
@@ -225,7 +246,7 @@ func (s *PrivacySuite) newHarness(failDelivery bool, entries ...ffEntry) *privac
 // debug) with a Telegram and an email channel, the latter always naming the privileged port 587
 // config validation allows; the harness's Env.SMTPAddr is what actually redirects the connection to
 // the fake server.
-func (*PrivacySuite) configYAML(dir, fireflyURL string) string {
+func (s *PrivacySuite) configYAML(dir, fireflyURL string) string {
 	return buildConfigYAML(configOpts{
 		timezone:          "Europe/Vilnius",
 		stateFile:         filepath.Join(dir, "state.json"),
@@ -237,10 +258,23 @@ func (*PrivacySuite) configYAML(dir, fireflyURL string) string {
 		telegram:          true,
 		telegramTokenFile: filepath.Join(dir, "telegram.token"),
 		telegramChatIDs:   []int64{100000001},
+		telegramThreadID:  s.topicThreadID(),
+		telegramSilent:    s.topic,
 		email:             true,
 		emailPasswordFile: filepath.Join(dir, "smtp.password"),
 		emailHost:         privacySMTPHost,
 	})
+}
+
+// topicThreadID is the anonymized forum topic id, or nil when the case does not use a topic.
+func (s *PrivacySuite) topicThreadID() *int64 {
+	if !s.topic {
+		return nil
+	}
+
+	id := int64(4242)
+
+	return &id
 }
 
 // bankTx builds one EUR bank transaction carrying description as its free-text memo, which in this

@@ -94,6 +94,7 @@ type sentMessage struct {
 	at     time.Time
 	url    string
 	text   string
+	raw    []byte
 	chatID int64
 }
 
@@ -143,6 +144,7 @@ func newScriptedTransport(endpoint string, script map[int64][]reply) (
 			at:     time.Now(),
 			url:    req.URL.String(),
 			text:   payload.Text,
+			raw:    raw,
 			chatID: payload.ChatID,
 		})
 
@@ -803,4 +805,90 @@ func (s *TelegramSuite) threePartFixture() (string, []string) {
 	}
 
 	return header, body
+}
+
+// sendRaw sends d to chatIDs with opts inside a bubble and returns every request as it went on
+// the wire.
+func (s *TelegramSuite) sendRaw(d digest.Digest, chatIDs []int64, opts ...telegram.Option) []sentMessage {
+	var sent []sentMessage
+
+	synctest.Test(s.T(), func(t *testing.T) {
+		endpoint := fakeBaseURL + "/bot" + testToken + "/sendMessage"
+		transport, snapshot := newScriptedTransport(endpoint, nil)
+		n := telegram.New(testToken, chatIDs, &http.Client{Transport: transport}, fakeBaseURL, opts...)
+
+		for _, r := range n.Send(t.Context(), d) {
+			s.Require().NoError(r.Err)
+		}
+
+		sent = snapshot()
+	})
+
+	return sent
+}
+
+const (
+	// bodyTail is what every body to chatA ends with when no option is set: the previous release's
+	// field order, which an upgrade must not change.
+	bodyTail = `,"chat_id":-1001000000001,"link_preview_options":{"is_disabled":true}}`
+	// singleBody is the exact request the previous release sent for oneLineDigest to chatA.
+	singleBody = `{"text":"firefly-jar: 1 missing\n- 2026-09-21  -4.50 EUR  COFFEE SHOP"` + bodyTail
+)
+
+func (s *TelegramSuite) TestNoOptionsSendTheBytesOfThePreviousRelease() {
+	sent := s.sendRaw(s.oneLineDigest(), []int64{chatA})
+
+	s.Require().Len(sent, 1)
+	s.Equal(strconv.Quote(singleBody), strconv.Quote(string(sent[0].raw)), "byte-for-byte, not merely equal JSON")
+}
+
+func (s *TelegramSuite) TestSilentFalseSendsTheBytesOfThePreviousRelease() {
+	sent := s.sendRaw(s.oneLineDigest(), []int64{chatA}, telegram.WithSilent(false))
+
+	s.Require().Len(sent, 1)
+	s.Equal(strconv.Quote(singleBody), strconv.Quote(string(sent[0].raw)), "byte-for-byte, not merely equal JSON")
+}
+
+func (s *TelegramSuite) TestSplitDigestWithoutOptionsKeepsThePreviousShape() {
+	sent := s.sendRaw(s.limitDigest(1), []int64{chatA})
+
+	s.Require().Len(sent, 2)
+
+	for _, m := range sent {
+		s.True(strings.HasPrefix(string(m.raw), `{"text":"`), "text stays the first key")
+		s.True(strings.HasSuffix(string(m.raw), `"`+bodyTail), "nothing follows chat_id and link_preview_options")
+	}
+}
+
+func (s *TelegramSuite) TestThreadAndSilentReachEveryPartOfEveryChat() {
+	sent := s.sendRaw(s.limitDigest(1), []int64{chatA, chatB}, telegram.WithThread(42), telegram.WithSilent(true))
+
+	s.Require().Len(sent, 4)
+
+	for _, m := range sent {
+		s.True(strings.HasSuffix(string(m.raw), `,"message_thread_id":42,"disable_notification":true}`), m.raw)
+	}
+}
+
+func (s *TelegramSuite) TestThreadOnlyOmitsDisableNotification() {
+	sent := s.sendRaw(s.oneLineDigest(), []int64{chatA}, telegram.WithThread(42))
+
+	s.Require().Len(sent, 1)
+	s.Contains(string(sent[0].raw), `"message_thread_id":42`)
+	s.NotContains(string(sent[0].raw), "disable_notification")
+}
+
+func (s *TelegramSuite) TestSilentOnlyOmitsMessageThreadID() {
+	sent := s.sendRaw(s.oneLineDigest(), []int64{chatA}, telegram.WithSilent(true))
+
+	s.Require().Len(sent, 1)
+	s.Contains(string(sent[0].raw), `"disable_notification":true`)
+	s.NotContains(string(sent[0].raw), "message_thread_id")
+}
+
+func (s *TelegramSuite) TestNilLoggerKeepsTheDefault() {
+	sent := s.sendRaw(s.oneLineDigest(), []int64{chatA}, telegram.WithLogger(nil))
+
+	s.Require().Len(sent, 1)
+	s.Equal(strconv.Quote(singleBody), strconv.Quote(string(sent[0].raw)), "byte-for-byte, not merely equal JSON")
 }

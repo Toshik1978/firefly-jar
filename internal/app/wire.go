@@ -89,7 +89,7 @@ func BuildDeps(_ context.Context, in BuildInput) (Deps, error) {
 	}
 
 	if in.Command == config.CmdCheck && !in.Stdout {
-		deps.Notifiers = newNotifiers(in)
+		deps.Notifiers = newNotifiers(in, log)
 	}
 
 	return deps, nil
@@ -167,12 +167,13 @@ func setAuthorizer(deps *Deps, provider string, eb *enablebanking.Client, cfg co
 // TelegramBaseURL and the email seams below are always their zero value outside a test (Env doc
 // comment), so production always posts to the public Bot API and dials the configured SMTP host
 // and port.
-func newNotifiers(in BuildInput) []notify.Notifier {
+func newNotifiers(in BuildInput, log *slog.Logger) []notify.Notifier {
 	var notifiers []notify.Notifier
 
 	if tg := in.Config.Notify.Telegram; tg != nil {
 		hc := httpclient.NewClient(&httpclient.TimeoutTransport{Base: in.Env.Transport})
-		notifiers = append(notifiers, telegram.New(in.Secrets.TelegramToken, tg.ChatIDs, hc, in.Env.TelegramBaseURL))
+		notifiers = append(notifiers, telegram.New(in.Secrets.TelegramToken, tg.ChatIDs, hc,
+			in.Env.TelegramBaseURL, telegramOptions(tg, log)...))
 	}
 
 	if em := in.Config.Notify.Email; em != nil {
@@ -180,6 +181,17 @@ func newNotifiers(in BuildInput) []notify.Notifier {
 	}
 
 	return notifiers
+}
+
+// telegramOptions maps the optional topic, silent and logger settings to notifier options. The
+// thread is passed only when configured, so an unset thread_id keeps the request free of the field.
+func telegramOptions(tg *config.Telegram, log *slog.Logger) []telegram.Option {
+	opts := []telegram.Option{telegram.WithSilent(tg.Silent), telegram.WithLogger(log)}
+	if tg.ThreadID != nil {
+		opts = append(opts, telegram.WithThread(*tg.ThreadID))
+	}
+
+	return opts
 }
 
 // newEmailNotifier builds the email notifier from cfg and, only when a test set Env.SMTPAddr,

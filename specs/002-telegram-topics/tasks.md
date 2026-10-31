@@ -40,7 +40,7 @@ inside T002 by the byte-equality assertion.
 **Independent Test**: httpmock records request bodies for single- and multi-part digests under each of the four
 key combinations.
 
-- [ ] T002 [US1] In internal/notify/telegram/api.go add `MessageThreadID int64 \`json:"message_thread_id,omitempty"\``
+- [x] T002 [US1] In internal/notify/telegram/api.go add `MessageThreadID int64 \`json:"message_thread_id,omitempty"\``
   and `DisableNotification bool \`json:"disable_notification,omitempty"\`` to `sendMessageRequest`. In
   internal/notify/telegram/telegram.go add `type Option func(*Notifier)` with `WithThread(id int64)`,
   `WithSilent(silent bool)` and `WithLogger(*slog.Logger)` (nil keeps the default discard logger), make `New`
@@ -50,7 +50,7 @@ key combinations.
   digest (US2 acceptance 1); `WithSilent(false)` → same bytes (US2 acceptance 2); (b) thread + silent → every
   part to every chat has both; (c) thread only → thread, no `disable_notification`; (d) silent only → silent,
   no `message_thread_id`.
-- [ ] T003 [US1] In internal/app/wire.go `newNotifiers`, pass `telegram.WithThread(*tg.ThreadID)` only when
+- [x] T003 [US1] In internal/app/wire.go `newNotifiers`, pass `telegram.WithThread(*tg.ThreadID)` only when
   `tg.ThreadID != nil`, `telegram.WithSilent(tg.Silent)`, and `telegram.WithLogger(log)` (thread the run
   logger into `newNotifiers`). Test in the existing internal/app suite that drives `BuildDeps`/`RunEnv` against
   its fake Telegram server: a config with `thread_id` and `silent: true` produces a request carrying both.
