@@ -33,6 +33,10 @@ const (
 	redacted = "<redacted>"
 )
 
+// errThreadNotFound marks a part the Bot API refused because the configured topic does not exist.
+// sendPart returns it only for a request that carried the topic, and sendParts never lets it out.
+var errThreadNotFound = errors.New("topic not found")
+
 // Notifier sends a digest to a fixed list of Telegram chats through one bot. It is safe to reuse
 // across Send calls but holds no state between them.
 type Notifier struct {
@@ -125,8 +129,12 @@ func (n *Notifier) Send(ctx context.Context, d digest.Digest) []notify.Result {
 }
 
 // sendParts sends parts to chatID in order, at least partGap apart, and stops at the first part
-// that fails: a later part without the earlier ones would read as a complete digest.
+// that fails: a later part without the earlier ones would read as a complete digest. useThread is
+// this chat's routing for this call only: once the topic turns out to be missing, the rest of the
+// digest goes to General, and the next Send tries the topic again.
 func (n *Notifier) sendParts(ctx context.Context, chatID int64, parts []string) error {
+	useThread := n.threadID != 0
+
 	for i, text := range parts {
 		if i > 0 {
 			if err := sleep(ctx, partGap); err != nil {
@@ -134,7 +142,13 @@ func (n *Notifier) sendParts(ctx context.Context, chatID int64, parts []string) 
 			}
 		}
 
-		if err := n.sendPart(ctx, chatID, text, n.threadID != 0); err != nil {
+		err := n.sendPart(ctx, chatID, text, useThread)
+		if errors.Is(err, errThreadNotFound) {
+			useThread = false
+			err = n.resendToGeneral(ctx, chatID, text)
+		}
+
+		if err != nil {
 			if len(parts) == 1 {
 				return err
 			}
@@ -146,23 +160,25 @@ func (n *Notifier) sendParts(ctx context.Context, chatID int64, parts []string) 
 	return nil
 }
 
+// resendToGeneral sends a part the topic refused to the chat itself, after the one warning this
+// chat gets. The resend is not paced by partGap: the refused request posted no message, so it used
+// none of the chat's rate, and like any retry it waits only as long as its own failures ask.
+func (n *Notifier) resendToGeneral(ctx context.Context, chatID int64, text string) error {
+	n.logger.WarnContext(ctx, "telegram topic not found, sent to general",
+		slog.String("chat", notify.MaskRecipient(strconv.FormatInt(chatID, 10))),
+		slog.Int64("thread_id", n.threadID),
+	)
+
+	return n.sendPart(ctx, chatID, text, false)
+}
+
 // sendPart posts one message, retrying as the attempt's outcome allows, at most maxRetries times.
 // Retries are not paced by partGap: the wait they get is the one the failure asked for. withThread
 // says whether the configured topic goes into the request, so a caller can send to the chat itself.
 func (n *Notifier) sendPart(ctx context.Context, chatID int64, text string, withThread bool) error {
-	req := sendMessageRequest{
-		Text:                text,
-		ChatID:              chatID,
-		LinkPreviewOptions:  linkPreviewOptions{IsDisabled: true},
-		DisableNotification: n.silent,
-	}
-	if withThread {
-		req.MessageThreadID = n.threadID
-	}
-
-	body, err := json.Marshal(req)
+	body, err := n.requestBody(chatID, text, withThread)
 	if err != nil {
-		return fmt.Errorf("encode request: %w", err)
+		return err
 	}
 
 	for attempt := 0; ; attempt++ {
@@ -175,6 +191,12 @@ func (n *Notifier) sendPart(ctx context.Context, chatID int64, text string, with
 			return nil
 		}
 
+		// Only a request that named the topic can blame it; without one, the same reply is an
+		// ordinary failure.
+		if out.threadNotFound && withThread {
+			return fmt.Errorf("%w: %w", errThreadNotFound, out.err)
+		}
+
 		if !out.retry || attempt >= maxRetries {
 			return out.err
 		}
@@ -183,6 +205,27 @@ func (n *Notifier) sendPart(ctx context.Context, chatID int64, text string, with
 			return fmt.Errorf("%w; wait before retry: %w", out.err, err)
 		}
 	}
+}
+
+// requestBody encodes one sendMessage request, with the configured topic only when withThread is
+// set; the silent setting goes into every request, a resend to General included.
+func (n *Notifier) requestBody(chatID int64, text string, withThread bool) ([]byte, error) {
+	req := sendMessageRequest{
+		Text:                text,
+		ChatID:              chatID,
+		LinkPreviewOptions:  linkPreviewOptions{IsDisabled: true},
+		DisableNotification: n.silent,
+	}
+	if withThread {
+		req.MessageThreadID = n.threadID
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+
+	return body, nil
 }
 
 // scrub is the last line of defense for the token: every error built here already avoids the

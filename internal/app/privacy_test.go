@@ -59,11 +59,19 @@ type PrivacySuite struct {
 
 	// topic makes the next harness's Telegram config carry thread_id and silent: true.
 	topic bool
+	// rejectTopic makes the next harness's fake Telegram answer "message thread not found" to
+	// every request that names a topic.
+	rejectTopic bool
+	// failEmail makes the next harness's fake SMTP server refuse delivery, so Telegram is the only
+	// channel that can deliver.
+	failEmail bool
 }
 
 // SetupTest clears per-case switches so one case's config never leaks into the next.
 func (s *PrivacySuite) SetupTest() {
 	s.topic = false
+	s.rejectTopic = false
+	s.failEmail = false
 }
 
 // SetupSuite loads the configured time zone once.
@@ -121,6 +129,34 @@ func (s *PrivacySuite) TestTelegramRequestCarriesConfiguredThreadAndSilent() {
 	bodies := h.telegram.allBodies()
 	s.Contains(bodies, `"message_thread_id":4242`)
 	s.Contains(bodies, `"disable_notification":true`)
+}
+
+// TestMissingTopicFallsBackAndTheRunExitsByTheNormalRules covers T005 end to end: the fake Bot API
+// refuses the topic and accepts the resend to General, so the run exits 1 (missing found,
+// delivered), not 2, and the one fallback WARN reaches stderr without the description. Email is
+// made to fail, so Telegram's General resend is the only delivery and the exit status depends on it.
+func (s *PrivacySuite) TestMissingTopicFallsBackAndTheRunExitsByTheNormalRules() {
+	s.topic = true
+	s.rejectTopic = true
+	s.failEmail = true
+	h := s.newHarness(false)
+
+	s.Equal(1, h.run(), "the digest reached General, so delivery succeeded")
+	s.Empty(h.stdout.String())
+
+	bodies := h.telegram.bodiesList()
+	s.Require().Len(bodies, 2, "the topic request, then one resend")
+	s.Contains(bodies[0], `"message_thread_id":4242`)
+	s.NotContains(bodies[1], "message_thread_id")
+	s.Contains(bodies[1], `"disable_notification":true`, "the resend keeps the silent setting")
+	s.Contains(bodies[1], privacyDescription)
+
+	stderr := h.stderr.String()
+	s.Contains(stderr, "telegram topic not found, sent to general")
+	s.Equal(1, strings.Count(stderr, "telegram topic not found"), "one WARN for the one chat")
+	s.NotContains(stderr, privacyDescription)
+	s.NotContains(stderr, threadNotFoundDescription)
+	s.NotContains(s.readFile(h.logPath), privacyDescription)
 }
 
 // TestSkippedFireflySplitIsLoggedAtDebugWithoutItsDescription covers research R8's "a split not
@@ -212,8 +248,8 @@ func (s *PrivacySuite) newHarness(failDelivery bool, entries ...ffEntry) *privac
 	ff.srv = httptest.NewServer(mux)
 	s.T().Cleanup(ff.srv.Close)
 
-	telegram := newFakeTelegramServer(s.T(), failDelivery)
-	smtp := newFakeSMTPServer(s.T(), privacySMTPHost, failDelivery)
+	telegram := newFakeTelegramServer(s.T(), failDelivery, s.rejectTopic)
+	smtp := newFakeSMTPServer(s.T(), privacySMTPHost, failDelivery || s.failEmail)
 
 	key, err := os.ReadFile(filepath.Clean(cliPrivateKeyFixture))
 	s.Require().NoError(err)
@@ -353,29 +389,35 @@ func (h *privacyHarness) run() int {
 	})
 }
 
+// threadNotFoundDescription is what the fake Bot API says about a missing topic.
+const threadNotFoundDescription = "Bad Request: message thread not found"
+
 // fakeTelegramServer is an in-process Bot API: it records every request body it received and,
 // when fail is set, always answers ok:false so every chat id fails at once (no retry needed, since
-// classify only retries a 429 or a 5xx).
+// classify only retries a 429 or a 5xx). When rejectTopic is set, it refuses every request that
+// names a topic as a missing topic, and accepts the rest.
 type fakeTelegramServer struct {
-	srv  *httptest.Server
-	fail bool
+	srv         *httptest.Server
+	fail        bool
+	rejectTopic bool
 
 	mu     sync.Mutex
 	bodies [][]byte
 }
 
 // newFakeTelegramServer starts the server and registers its cleanup.
-func newFakeTelegramServer(t *testing.T, fail bool) *fakeTelegramServer {
+func newFakeTelegramServer(t *testing.T, fail, rejectTopic bool) *fakeTelegramServer {
 	t.Helper()
 
-	f := &fakeTelegramServer{fail: fail}
+	f := &fakeTelegramServer{fail: fail, rejectTopic: rejectTopic}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 
 	return f
 }
 
-// handle captures the request body and answers ok:true, or a 400 with ok:false when fail is set.
+// handle captures the request body and answers ok:true, or a 400 with ok:false when fail is set
+// or when rejectTopic is set and the request names a topic.
 func (f *fakeTelegramServer) handle(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 
@@ -392,7 +434,27 @@ func (f *fakeTelegramServer) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if f.rejectTopic && bytes.Contains(body, []byte(`"message_thread_id"`)) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":400,"description":%q}`, threadNotFoundDescription)
+
+		return
+	}
+
 	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+// bodiesList returns every request body this server captured, in order.
+func (f *fakeTelegramServer) bodiesList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]string, 0, len(f.bodies))
+	for _, body := range f.bodies {
+		out = append(out, string(body))
+	}
+
+	return out
 }
 
 // allBodies joins every request body this server captured, in order.

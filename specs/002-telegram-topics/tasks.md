@@ -67,7 +67,7 @@ without it, one WARN; closed topic and every other failure unchanged.
 **Independent Test**: httpmock responders reject requests carrying `message_thread_id` with HTTP 400
 `{"ok":false,"error_code":400,"description":"Bad Request: message thread not found"}` and accept others.
 
-- [ ] T004 [US3] In internal/notify/telegram/api.go, decode `description` into a local in `classify` (not into
+- [x] T004 [US3] In internal/notify/telegram/api.go, decode `description` into a local in `classify` (not into
   `apiReply` as a stored field that outlives the call, and never into an error); on a non-2xx or `ok:false`
   reply whose description contains `message thread not found` (case-insensitive), return a new outcome flag
   `threadNotFound` (not retried, err = today's `statusError` text only). Confirm the Bot API wording with ctx7
@@ -76,7 +76,7 @@ without it, one WARN; closed topic and every other failure unchanged.
   outcome's error text contains the description; a request carrying `message_thread_id` that gets a 429 (with
   `retry_after`) or a 5xx is retried with `message_thread_id` still in the body (spec edge case "topic kept on
   retries"; timing under `synctest`).
-- [ ] T005 [US3] In internal/notify/telegram/telegram.go `sendParts`, keep a per-chat `useThread` (true when a
+- [x] T005 [US3] In internal/notify/telegram/telegram.go `sendParts`, keep a per-chat `useThread` (true when a
   thread is configured); on `threadNotFound` while `useThread`, set it false, log one WARN
   `telegram topic not found, sent to general` with `chat` = `notify.MaskRecipient(...)` and `thread_id`, and
   resend the same part through the ordinary retry loop without the thread; later parts start without it;

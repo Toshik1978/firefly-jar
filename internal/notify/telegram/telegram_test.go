@@ -1,11 +1,13 @@
 package telegram_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -891,4 +893,408 @@ func (s *TelegramSuite) TestNilLoggerKeepsTheDefault() {
 
 	s.Require().Len(sent, 1)
 	s.Equal(strconv.Quote(singleBody), strconv.Quote(string(sent[0].raw)), "byte-for-byte, not merely equal JSON")
+}
+
+// classified runs the test seam over a canned reply.
+func classified(status int, body string) telegram.Verdict {
+	resp := &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}
+
+	return telegram.Classify(resp, 0)
+}
+
+func (s *TelegramSuite) TestClassifyRecognisesAMissingTopic() {
+	cases := []struct {
+		name        string
+		description string
+	}{
+		{name: "bot api wording", description: "Bad Request: message thread not found"},
+		{name: "case-insensitive", description: "bad request: MESSAGE Thread NOT Found"},
+		{name: "bare phrase", description: "message thread not found"},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			v := classified(http.StatusBadRequest, errorReply(http.StatusBadRequest, tc.description).body)
+
+			s.True(v.ThreadNotFound)
+			s.False(v.Retry, "a missing topic is not retried")
+			s.Equal(time.Duration(0), v.Wait)
+			s.Require().Error(v.Err)
+			s.Equal("HTTP 400", v.Err.Error())
+		})
+	}
+}
+
+func (s *TelegramSuite) TestClassifyRecognisesAMissingTopicOnOkFalseWithStatus200() {
+	v := classified(http.StatusOK,
+		`{"ok":false,"error_code":400,"description":"Bad Request: message thread not found"}`)
+
+	s.True(v.ThreadNotFound)
+	s.False(v.Retry)
+	s.Require().Error(v.Err)
+	s.Equal("HTTP 200 (error_code 400): ok is false", v.Err.Error(), "today's text")
+}
+
+func (s *TelegramSuite) TestClassifyLeavesOtherFailuresOrdinary() {
+	cases := []struct {
+		name   string
+		body   string
+		status int
+		retry  bool
+	}{
+		{name: "closed topic", status: 400, body: errorReply(400, "Bad Request: TOPIC_CLOSED").body},
+		{name: "chat not found", status: 400, body: errorReply(400, "Bad Request: chat not found").body},
+		{name: "no description", status: 400, body: `{"ok":false,"error_code":400}`},
+		{name: "success", status: 200, body: okBody},
+		{name: "5xx", status: 502, body: errorReply(502, "Bad Gateway").body, retry: true},
+		{name: "429", status: 429, body: tooManyReply(3).body, retry: true},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			v := classified(tc.status, tc.body)
+
+			s.False(v.ThreadNotFound)
+			s.Equal(tc.retry, v.Retry)
+		})
+	}
+}
+
+// TestClassifyNeverEchoesTheDescription uses a marker instead of a digest line, so a failure
+// message cannot print real data.
+func (s *TelegramSuite) TestClassifyNeverEchoesTheDescription() {
+	const marker = "SECRET-MARKER-QUOTED-TEXT"
+
+	for _, desc := range []string{
+		"Bad Request: message thread not found " + marker,
+		"Bad Request: " + marker,
+	} {
+		for _, status := range []int{http.StatusOK, http.StatusBadRequest, http.StatusInternalServerError} {
+			v := classified(status, errorReply(status, desc).body)
+
+			s.Require().Error(v.Err)
+			s.NotContains(v.Err.Error(), marker, "the error never carries the description")
+		}
+	}
+}
+
+// TestThreadIsKeptOnRetries pins the spec edge case: a retried part still goes to the topic.
+func (s *TelegramSuite) TestThreadIsKeptOnRetries() {
+	cases := []struct {
+		name  string
+		first reply
+		wait  time.Duration
+	}{
+		{name: "429 with retry_after", first: tooManyReply(3), wait: 3 * time.Second},
+		{name: "5xx", first: errorReply(http.StatusBadGateway, "Bad Gateway"), wait: time.Second},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			var sent []sentMessage
+
+			synctest.Test(s.T(), func(t *testing.T) {
+				endpoint := fakeBaseURL + "/bot" + testToken + "/sendMessage"
+				script := map[int64][]reply{chatA: {tc.first, okReply()}}
+				transport, snapshot := newScriptedTransport(endpoint, script)
+				n := telegram.New(testToken, []int64{chatA}, &http.Client{Transport: transport}, fakeBaseURL,
+					telegram.WithThread(42))
+
+				for _, r := range n.Send(t.Context(), s.oneLineDigest()) {
+					s.Require().NoError(r.Err)
+				}
+
+				synctest.Wait()
+
+				sent = snapshot()
+			})
+
+			s.Require().Len(sent, 2)
+
+			for _, m := range sent {
+				s.Contains(string(m.raw), `"message_thread_id":42`)
+			}
+
+			s.Equal(sent[0].at.Add(tc.wait), sent[1].at)
+		})
+	}
+}
+
+const (
+	// topicID is the anonymized forum topic id every fallback case configures.
+	topicID int64 = 42
+	// topicMarker sits in the Bot API's description, so a case can prove the description never
+	// reaches the log.
+	topicMarker = "DESCRIPTION-MARKER"
+	// fallbackWarn is the one WARN a chat's fallback logs (research R4).
+	fallbackWarn = "telegram topic not found, sent to general"
+	// threadField is how the configured topic appears in a request body.
+	threadField = `"message_thread_id":42`
+	// silentField is how silent: true appears in a request body.
+	silentField = `"disable_notification":true`
+)
+
+// threadNotFoundReply is the Bot API's answer to a message aimed at a deleted or unknown topic,
+// with a marker in the description standing in for any free text Telegram might echo.
+func threadNotFoundReply() reply {
+	return errorReply(http.StatusBadRequest, "Bad Request: message thread not found "+topicMarker)
+}
+
+// topicRun is what sendWithTopic saw: one sendOutcome per Send call and the captured log.
+type topicRun struct {
+	log   string
+	sends []sendOutcome
+}
+
+// sendWithTopic builds one notifier with WithThread(topicID), WithSilent(true) and a logger that
+// writes JSON into a buffer, inside a synctest bubble, then calls Send calls times with d; opts
+// come last, so a case can override the topic. Each outcome holds only that call's requests.
+func (s *TelegramSuite) sendWithTopic(
+	script map[int64][]reply, chatIDs []int64, d digest.Digest, calls int, opts ...telegram.Option,
+) topicRun {
+	var run topicRun
+
+	synctest.Test(s.T(), func(t *testing.T) {
+		var buf bytes.Buffer
+
+		logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		endpoint := fakeBaseURL + "/bot" + testToken + "/sendMessage"
+		transport, snapshot := newScriptedTransport(endpoint, script)
+		all := append([]telegram.Option{
+			telegram.WithThread(topicID), telegram.WithSilent(true), telegram.WithLogger(logger),
+		}, opts...)
+		n := telegram.New(testToken, chatIDs, &http.Client{Transport: transport}, fakeBaseURL, all...)
+
+		for range calls {
+			before := len(snapshot())
+			o := sendOutcome{start: time.Now()}
+			o.results = n.Send(t.Context(), d)
+			o.elapsed = time.Since(o.start)
+
+			synctest.Wait()
+
+			o.sent = snapshot()[before:]
+			run.sends = append(run.sends, o)
+		}
+
+		run.log = buf.String()
+	})
+
+	return run
+}
+
+// warnings decodes every JSON log line of log and returns the WARN records.
+func (s *TelegramSuite) warnings(log string) []map[string]any {
+	var out []map[string]any
+
+	for line := range strings.SplitSeq(strings.TrimSpace(log), "\n") {
+		if line == "" {
+			continue
+		}
+
+		var rec map[string]any
+		s.Require().NoError(json.Unmarshal([]byte(line), &rec))
+
+		if rec["level"] == slog.LevelWarn.String() {
+			out = append(out, rec)
+		}
+	}
+
+	return out
+}
+
+// assertFallbackWarn requires exactly one WARN in log, for chatID, carrying only the fixed message,
+// the masked chat and the topic id.
+func (s *TelegramSuite) assertFallbackWarn(log string, chatID int64) {
+	warns := s.warnings(log)
+	s.Require().Len(warns, 1, "exactly one WARN per affected chat")
+
+	w := warns[0]
+	s.Equal(fallbackWarn, w["msg"])
+	s.Equal(notify.MaskRecipient(strconv.FormatInt(chatID, 10)), w["chat"])
+	s.InDelta(float64(topicID), w["thread_id"], 0)
+
+	keys := make([]string, 0, len(w))
+	for k := range w {
+		keys = append(keys, k)
+	}
+
+	s.ElementsMatch([]string{"time", "level", "msg", "chat", "thread_id"}, keys, "nothing else is logged")
+}
+
+// assertTopic checks, request by request, whether each one carried the topic, and that every one
+// kept the silent setting.
+func (s *TelegramSuite) assertTopic(sent []sentMessage, withTopic ...bool) {
+	bodies := make([]string, 0, len(sent))
+	for _, m := range sent {
+		bodies = append(bodies, string(m.raw))
+	}
+
+	s.Require().Len(bodies, len(withTopic))
+
+	for i, body := range bodies {
+		if withTopic[i] {
+			s.Contains(body, threadField, "request %d carries the topic", i+1)
+		} else {
+			s.NotContains(body, "message_thread_id", "request %d goes to General", i+1)
+		}
+
+		s.Contains(body, silentField, "request %d keeps the silent setting", i+1)
+	}
+}
+
+// TestMissingTopicResendsThePartToGeneralAndTheRestFollow covers US3 acceptance 1-2 and SC-005.
+func (s *TelegramSuite) TestMissingTopicResendsThePartToGeneralAndTheRestFollow() {
+	header, body := s.threePartFixture()
+	d := makeDigest(header, body)
+
+	run := s.sendWithTopic(map[int64][]reply{chatA: {threadNotFoundReply()}}, []int64{chatA}, d, 1)
+
+	out := run.sends[0]
+	s.Require().Len(out.results, 1)
+	s.Require().NoError(out.results[0].Err)
+	s.assertTopic(out.sent, true, false, false, false)
+
+	s.Equal(out.sent[0].text, out.sent[1].text, "part 1 is resent, unchanged")
+	s.True(strings.HasPrefix(out.sent[0].text, header+"\n"))
+	s.True(strings.HasPrefix(out.sent[2].text, header+" (2/3)\n"))
+	s.True(strings.HasPrefix(out.sent[3].text, header+" (3/3)\n"))
+
+	s.Equal(out.sent[0].at, out.sent[1].at, "the resend goes at once, like any retry whose failure asks no wait")
+	s.GreaterOrEqual(out.sent[2].at.Sub(out.sent[1].at), minPartGap, "parts stay paced after the resend")
+	s.GreaterOrEqual(out.sent[3].at.Sub(out.sent[2].at), minPartGap)
+
+	s.assertFallbackWarn(run.log, chatA)
+	s.NotContains(run.log, topicMarker, "the Bot API's description never reaches the log")
+	s.NotContains(strings.ToLower(run.log), "message thread not found")
+
+	for _, line := range d.Lines {
+		s.NotContains(run.log, line, "no digest text reaches the log")
+	}
+}
+
+// TestMissingTopicOnALaterPartNeverResendsADeliveredPart covers FR-112.
+func (s *TelegramSuite) TestMissingTopicOnALaterPartNeverResendsADeliveredPart() {
+	header, body := s.threePartFixture()
+
+	run := s.sendWithTopic(
+		map[int64][]reply{chatA: {okReply(), threadNotFoundReply()}}, []int64{chatA}, makeDigest(header, body), 1,
+	)
+
+	out := run.sends[0]
+	s.Require().NoError(out.results[0].Err)
+	s.assertTopic(out.sent, true, true, false, false)
+	s.True(strings.HasPrefix(out.sent[0].text, header+"\n"))
+	s.True(strings.HasPrefix(out.sent[1].text, header+" (2/3)\n"))
+	s.Equal(out.sent[1].text, out.sent[2].text, "only the rejected part is resent")
+	s.True(strings.HasPrefix(out.sent[3].text, header+" (3/3)\n"))
+	s.assertFallbackWarn(run.log, chatA)
+}
+
+// TestOnlyTheChatThatRejectsTheTopicFallsBack covers US3 acceptance 3.
+func (s *TelegramSuite) TestOnlyTheChatThatRejectsTheTopicFallsBack() {
+	run := s.sendWithTopic(
+		map[int64][]reply{chatA: {threadNotFoundReply()}}, []int64{chatA, chatB}, s.oneLineDigest(), 1,
+	)
+
+	out := run.sends[0]
+	s.Require().Len(out.results, 2)
+
+	for _, r := range out.results {
+		s.Require().NoError(r.Err)
+	}
+
+	s.assertTopic(out.forChat(chatA), true, false)
+	s.assertTopic(out.forChat(chatB), true)
+	s.assertFallbackWarn(run.log, chatA)
+}
+
+// TestFailedResendFollowsTheOrdinaryRetryRules covers US3 acceptance 4 and FR-110: the resend is
+// retried 1s, 2s and 4s apart, then the chat fails.
+func (s *TelegramSuite) TestFailedResendFollowsTheOrdinaryRetryRules() {
+	fail := errorReply(http.StatusInternalServerError, "Internal Server Error")
+	script := map[int64][]reply{chatA: {threadNotFoundReply(), fail, fail, fail, fail}}
+
+	run := s.sendWithTopic(script, []int64{chatA}, s.oneLineDigest(), 1)
+
+	out := run.sends[0]
+	s.Require().Len(out.results, 1)
+	s.Require().Error(out.results[0].Err, "the chat fails once the resend's retries run out")
+	s.Contains(out.results[0].Err.Error(), "HTTP 500")
+	s.assertTopic(out.sent, true, false, false, false, false)
+
+	for i, wait := range []time.Duration{0, time.Second, 2 * time.Second, 4 * time.Second} {
+		s.Equal(out.sent[i].at.Add(wait), out.sent[i+1].at, "request %d", i+2)
+	}
+
+	s.assertFallbackWarn(run.log, chatA)
+}
+
+// TestMissingTopicWithoutATopicIsAnOrdinaryFailure pins research R2: the flag means a fallback only
+// on a request that carried the topic.
+func (s *TelegramSuite) TestMissingTopicWithoutATopicIsAnOrdinaryFailure() {
+	cases := []struct {
+		name     string
+		opts     []telegram.Option
+		script   []reply
+		requests []bool
+		warned   bool
+	}{
+		{
+			name:     "resend rejected again",
+			script:   []reply{threadNotFoundReply(), threadNotFoundReply()},
+			requests: []bool{true, false},
+			warned:   true,
+		},
+		{
+			name:     "no topic configured",
+			opts:     []telegram.Option{telegram.WithThread(0)},
+			script:   []reply{threadNotFoundReply()},
+			requests: []bool{false},
+		},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			run := s.sendWithTopic(
+				map[int64][]reply{chatA: tc.script}, []int64{chatA}, s.oneLineDigest(), 1, tc.opts...,
+			)
+
+			out := run.sends[0]
+			s.Require().Error(out.results[0].Err)
+			s.Equal("telegram: chat "+notify.MaskRecipient(strconv.FormatInt(chatA, 10))+": HTTP 400",
+				out.results[0].Err.Error())
+			s.assertTopic(out.sent, tc.requests...)
+
+			if tc.warned {
+				s.assertFallbackWarn(run.log, chatA)
+			} else {
+				s.Empty(s.warnings(run.log))
+			}
+		})
+	}
+}
+
+// TestClosedTopicFailsTheChatWithoutFallback covers US3 acceptance 6.
+func (s *TelegramSuite) TestClosedTopicFailsTheChatWithoutFallback() {
+	script := map[int64][]reply{chatA: {errorReply(http.StatusBadRequest, "Bad Request: TOPIC_CLOSED")}}
+
+	run := s.sendWithTopic(script, []int64{chatA}, s.oneLineDigest(), 1)
+
+	out := run.sends[0]
+	s.Require().Error(out.results[0].Err)
+	s.assertTopic(out.sent, true)
+	s.Empty(s.warnings(run.log), "a closed topic logs no fallback")
+}
+
+// TestEverySendTriesTheTopicAgain pins the per-run scope: the fallback is never remembered.
+func (s *TelegramSuite) TestEverySendTriesTheTopicAgain() {
+	run := s.sendWithTopic(map[int64][]reply{chatA: {threadNotFoundReply()}}, []int64{chatA}, s.oneLineDigest(), 2)
+
+	s.Require().Len(run.sends, 2)
+	s.Require().NoError(run.sends[0].results[0].Err)
+	s.Require().NoError(run.sends[1].results[0].Err)
+	s.assertTopic(run.sends[0].sent, true, false)
+	s.assertTopic(run.sends[1].sent, true)
+	s.assertFallbackWarn(run.log, chatA)
 }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -45,7 +46,8 @@ type linkPreviewOptions struct {
 }
 
 // apiReply holds the fields of a Bot API reply the notifier acts on. The description is left out
-// on purpose: it is free text that could echo the message.
+// on purpose: it is free text that could echo the message, so classify reads it into a local
+// that dies with the call.
 type apiReply struct {
 	Parameters *replyParameters `json:"parameters"`
 	ErrorCode  int              `json:"error_code"`
@@ -64,6 +66,10 @@ type outcome struct {
 	err   error
 	wait  time.Duration
 	retry bool
+	// threadNotFound marks a failed reply that says the topic does not exist. It is never retried.
+	// classify cannot tell whether the request carried a thread id, so the send loop decides
+	// whether the flag means anything.
+	threadNotFound bool
 }
 
 // statusError reports a reply that was not a delivered message, by HTTP status and, when it
@@ -107,9 +113,16 @@ func (n *Notifier) attempt(ctx context.Context, body []byte, attemptNo int) outc
 
 // classify turns a reply into an outcome: a 2xx with ok:true is delivered, a 429 or a 5xx is
 // retried, and anything else (another 4xx, a 2xx with ok:false or an unreadable body, a 3xx)
-// fails at once, since sending the same request again would fail the same way.
+// fails at once, since sending the same request again would fail the same way. A failed reply
+// whose description names a missing topic also sets threadNotFound.
 func classify(resp *http.Response, attemptNo int) outcome {
-	var reply apiReply
+	// The description is free text that could quote the message. It stays in this local: it is
+	// never stored, wrapped into an error or logged.
+	var reply struct {
+		apiReply
+
+		Description string `json:"description"`
+	}
 
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, maxReplyBytes)).Decode(&reply)
 	failure := &statusError{status: resp.StatusCode, errorCode: reply.ErrorCode}
@@ -120,14 +133,20 @@ func classify(resp *http.Response, attemptNo int) outcome {
 	case resp.StatusCode >= http.StatusInternalServerError:
 		return outcome{err: failure, wait: backoff(attemptNo), retry: true}
 	case resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices:
-		return outcome{err: failure}
+		return outcome{err: failure, threadNotFound: isThreadNotFound(reply.Description)}
 	case decodeErr != nil:
 		return outcome{err: fmt.Errorf("%w: decode reply: %w", failure, decodeErr)}
 	case !reply.OK:
-		return outcome{err: fmt.Errorf("%w: ok is false", failure)}
+		return outcome{err: fmt.Errorf("%w: ok is false", failure), threadNotFound: isThreadNotFound(reply.Description)}
 	default:
 		return outcome{}
 	}
+}
+
+// isThreadNotFound reports whether a Bot API error description says the forum topic is gone. A
+// closed topic reads differently (TOPIC_CLOSED), so it stays an ordinary failure.
+func isThreadNotFound(description string) bool {
+	return strings.Contains(strings.ToLower(description), "message thread not found")
 }
 
 // tooManyRequests honors flood control's parameters.retry_after up to the cap, and falls back to
