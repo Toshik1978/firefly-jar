@@ -101,7 +101,7 @@ without it, one WARN; closed topic and every other failure unchanged.
 
 **Independent Test**: config validation tests with invalid values.
 
-- [ ] T006 [US4] In internal/config/validate.go `validateNotify`, when `Notify.Telegram != nil` and
+- [x] T006 [US4] In internal/config/validate.go `validateNotify`, when `Notify.Telegram != nil` and
   `ThreadID != nil && *ThreadID <= 0`, fail with exactly `notify.telegram.thread_id: must be a positive integer`
   (keep the function within lint limits; extract a `validateTelegram` helper if needed). Tests in
   internal/config/config_test.go: `thread_id: 0` and `thread_id: -5` fail with that message; `thread_id: 1`

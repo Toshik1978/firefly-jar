@@ -444,6 +444,35 @@ func (s *LoadSuite) TestTelegramTopicKeysRejectWrongTypes() {
 	}
 }
 
+func (s *LoadSuite) TestTelegramThreadIDMustBePositive() {
+	const want = "notify.telegram.thread_id: must be a positive integer"
+
+	cases := map[string]struct {
+		extra string
+		ok    bool
+	}{
+		"zero is rejected":     {extra: "    thread_id: 0\n", ok: false},
+		"negative is rejected": {extra: "    thread_id: -5\n", ok: false},
+		"one is accepted":      {extra: "    thread_id: 1\n", ok: true},
+		"unset is accepted":    {extra: "", ok: true},
+	}
+
+	for name, tc := range cases {
+		s.Run(name, func() {
+			dir := copyFixtureDir(s.T())
+			path := writeYAML(s.T(), dir, "tg-thread.yaml", telegramYAML(tc.extra))
+
+			if tc.ok {
+				s.requireLoadSucceeds(path)
+
+				return
+			}
+
+			s.Contains(s.requireLoadFails(path).Error(), want)
+		})
+	}
+}
+
 func (s *LoadSuite) TestRelativePathsResolveAgainstConfigDir() {
 	dir := copyFixtureDir(s.T())
 

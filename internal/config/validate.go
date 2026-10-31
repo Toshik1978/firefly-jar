@@ -213,6 +213,8 @@ func (c *Config) validateAccounts(col *collector) {
 }
 
 func (c *Config) validateNotify(col *collector) {
+	c.validateTelegram(col)
+
 	email := c.Notify.Email
 	if email == nil {
 		return
@@ -227,6 +229,19 @@ func (c *Config) validateNotify(col *collector) {
 			"notify.email.port: %d is not allowed; use %d (STARTTLS) or %d (implicit TLS)",
 			email.Port, smtpPortSTARTTLS, smtpPortImplicitTLS,
 		))
+	}
+}
+
+// validateTelegram runs independently of the email section: a bad topic id must fail at startup even when
+// Telegram is the only notifier.
+func (c *Config) validateTelegram(col *collector) {
+	tg := c.Notify.Telegram
+	if tg == nil {
+		return
+	}
+
+	if tg.ThreadID != nil && *tg.ThreadID <= 0 {
+		col.fail(errors.New("notify.telegram.thread_id: must be a positive integer"))
 	}
 }
 
