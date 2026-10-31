@@ -7,10 +7,14 @@ type Notify struct {
 	Email    *Email    `yaml:"email"`
 }
 
-// Telegram is the notify.telegram: channel.
+// Telegram is the notify.telegram: channel. ThreadID is the forum topic used for every chat in
+// ChatIDs (nil means no topic, so the digest goes to the chat itself). Silent sends the digest
+// without a notification sound (Telegram's disable_notification).
 type Telegram struct {
 	BotTokenFile string  `yaml:"bot_token_file"`
 	ChatIDs      []int64 `yaml:"chat_ids"`
+	ThreadID     *int64  `yaml:"thread_id"`
+	Silent       bool    `yaml:"silent"`
 }
 
 // Email is the notify.email: channel. Port is 587 (STARTTLS required) or 465 (implicit TLS).

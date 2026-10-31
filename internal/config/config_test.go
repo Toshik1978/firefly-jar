@@ -400,6 +400,50 @@ func (s *LoadSuite) TestNotifySectionIsOptionalAtLoad() {
 	s.Nil(cfg.Notify.Email)
 }
 
+// telegramYAML renders fullYAML with extra lines appended to the notify.telegram: block.
+func telegramYAML(extra string) string {
+	return strings.Replace(fullYAML(defaultFullYAMLOpts()), "    chat_ids: [123456789]\n",
+		"    chat_ids: [123456789]\n"+extra, 1)
+}
+
+func (s *LoadSuite) TestTelegramTopicKeysDefaultToUnset() {
+	dir := copyFixtureDir(s.T())
+	path := writeYAML(s.T(), dir, "tg-default.yaml", telegramYAML(""))
+
+	cfg := s.requireLoadSucceeds(path)
+
+	s.Require().NotNil(cfg.Notify.Telegram)
+	s.Nil(cfg.Notify.Telegram.ThreadID)
+	s.False(cfg.Notify.Telegram.Silent)
+}
+
+func (s *LoadSuite) TestTelegramTopicKeysLoadWhenSet() {
+	dir := copyFixtureDir(s.T())
+	path := writeYAML(s.T(), dir, "tg-set.yaml", telegramYAML("    thread_id: 42\n    silent: true\n"))
+
+	cfg := s.requireLoadSucceeds(path)
+
+	s.Require().NotNil(cfg.Notify.Telegram)
+	s.Require().NotNil(cfg.Notify.Telegram.ThreadID)
+	s.Equal(int64(42), *cfg.Notify.Telegram.ThreadID)
+	s.True(cfg.Notify.Telegram.Silent)
+}
+
+func (s *LoadSuite) TestTelegramTopicKeysRejectWrongTypes() {
+	cases := map[string]string{
+		"thread_id string": "    thread_id: \"x\"\n",
+		"silent string":    "    silent: \"yes\"\n",
+	}
+	for name, extra := range cases {
+		s.Run(name, func() {
+			dir := copyFixtureDir(s.T())
+			path := writeYAML(s.T(), dir, "tg-bad.yaml", telegramYAML(extra))
+
+			s.requireLoadFails(path)
+		})
+	}
+}
+
 func (s *LoadSuite) TestRelativePathsResolveAgainstConfigDir() {
 	dir := copyFixtureDir(s.T())
 
