@@ -9,6 +9,34 @@ Versions follow [semver](https://semver.org). Commits follow
 
 ---
 
+## v1.1.0 — 2026-10-31
+
+The Telegram digest can now go to a forum topic in a supergroup, and arrive without a notification
+sound. Two optional keys under `notify.telegram` do this: `thread_id` (the topic's id, a positive
+integer) and `silent` (default `false`). If Telegram reports that the topic does not exist, the
+digest is still delivered to the group's General topic and the run logs one warning. A closed topic
+fails the delivery as before. A `thread_id` that is zero or negative stops the run at startup with
+exit status 2. Without the new keys, messages are sent exactly as in v1.0.1, so no configuration
+changes are needed.
+
+### Features
+
+- feat(config): add telegram thread_id and silent keys ([18a4973](https://github.com/Toshik1978/firefly-jar/commit/18a4973532183ae3bf849ad2334dc2828c8a3012))
+- feat(telegram): send the digest to a forum topic, optionally silent ([834f09d](https://github.com/Toshik1978/firefly-jar/commit/834f09d1dd434ce82eef0b44909851d11459ecd8))
+- feat(telegram): fall back to general when the forum topic is missing ([1bb3676](https://github.com/Toshik1978/firefly-jar/commit/1bb3676e69afaf2792f2db64cd74f904c9ce18e4))
+- feat(config): reject a non-positive telegram thread_id ([e5646f5](https://github.com/Toshik1978/firefly-jar/commit/e5646f512062b5075c4a48e96e911a98e6e8eeb4))
+
+### Bug Fixes
+
+- fix: drop another project's name from the topic spec and guard default telegram wiring ([8e0e456](https://github.com/Toshik1978/firefly-jar/commit/8e0e4561da43adf56fc420d81ad23f45d06f5885))
+
+### Others
+
+- docs: link new accounts in Enable Banking before re-running auth ([404755f](https://github.com/Toshik1978/firefly-jar/commit/404755fe6fe2e4f09dbf8d1235d56b55fcccccd4))
+- docs: document telegram topic delivery and the General fallback ([50303ab](https://github.com/Toshik1978/firefly-jar/commit/50303ab9691a69c5e57d8968820ce68c4fc979cf))
+
+---
+
 ## v1.0.1 — 2026-10-04
 
 A bug-fix release. Over a weekend or bank holiday, a bank can date a pending card payment with the
