@@ -113,12 +113,12 @@ without it, one WARN; closed topic and every other failure unchanged.
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T007 Document both keys and the fallback: add commented `thread_id:` / `silent:` lines with defaults
+- [x] T007 Document both keys and the fallback: add commented `thread_id:` / `silent:` lines with defaults
   to config.example.yaml; fold specs/002-telegram-topics/contracts/config.md into
   specs/001-missing-tx-reminder/contracts/config.md (sample + validation rules); mention topic, silent and the
   General fallback in the Telegram part of README.md; add one line on the fallback to the Telegram notifier in
   docs/ARCHITECTURE.md. No real ids: examples use `-1001234567890` and `42`.
-- [ ] T008 Run `task check` and `task cover:check`; both must exit 0. Walk quickstart.md's automated list and
+- [x] T008 Run `task check` and `task cover:check`; both must exit 0. Walk quickstart.md's automated list and
   confirm each item maps to a passing test.
 
 ---

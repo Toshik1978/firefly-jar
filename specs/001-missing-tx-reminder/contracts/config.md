@@ -45,6 +45,8 @@ notify:                            # at least one channel with at least one reci
   telegram:
     bot_token_file: /etc/firefly-jar/telegram.token   # or env FIREFLY_JAR_TELEGRAM_TOKEN
     chat_ids: [123456789, -1001234567890]
+    # thread_id: 42                 # optional: forum topic for every chat; unset = General
+    # silent: false                 # optional, default false: deliver without a notification sound
   email:
     host: smtp.example.com
     port: 587                      # 587 = STARTTLS required; 465 = implicit TLS; others rejected
@@ -69,6 +71,13 @@ notify:                            # at least one channel with at least one reci
   | `check --stdout` | Enable Banking private key, Firefly token | `log_file` directory writable; state file readable if it exists |
   | `check` | the above + the secrets of every configured notifier (Telegram token, SMTP password) | the above + ≥1 notifier recipient |
 
+- `notify.telegram.thread_id`, if present, is an integer > 0, or validation fails (exit 2) with
+  `notify.telegram.thread_id: must be a positive integer`. A non-integer fails loading. Unset posts to General.
+- `notify.telegram.silent` is an optional boolean, default false. A non-boolean fails loading. It is independent
+  of `thread_id`.
+- If Telegram answers that the topic was not found, the message is resent once without the topic (it lands in
+  General), that chat's remaining parts go without it too, and one WARN is logged per chat. The next run tries
+  the topic again. A closed topic, and any other error, follow the normal delivery-failure rules (FR-028, FR-029).
 - Secret files with group/other permissions produce a WARN, not an error.
 - The private key parses as RSA PEM (PKCS#1 or PKCS#8).
 - `log_file` is required and validated only for `check`. `auth` and `accounts` log WARN and above to stderr

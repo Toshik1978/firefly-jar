@@ -47,6 +47,8 @@ notify:                            # at least one channel with at least one reci
   telegram:
     bot_token_file: /etc/firefly-jar/telegram.token   # or env FIREFLY_JAR_TELEGRAM_TOKEN
     chat_ids: [123456789, -1001234567890]
+    # thread_id: 42                 # optional: forum topic for every chat; unset = General
+    # silent: false                 # optional, default false: deliver without a notification sound
   email:
     host: smtp.example.com
     port: 587                      # 587 = STARTTLS required; 465 = implicit TLS; others rejected

@@ -40,7 +40,7 @@ internal/app                    commands, wiring, the check pipeline, the exit c
   ├── report                    the run outcome: exit code, whether a digest is needed
   ├── digest                    the plain-text digest, a pure renderer
   └── notify                    fan-out and delivery bookkeeping
-        ├── telegram            Bot API sendMessage
+        ├── telegram            Bot API sendMessage; optional forum topic, falls back to General if it is gone
         └── email               SMTP with STARTTLS or implicit TLS
 shared leaves: money, civil, httpclient, redact
 ```

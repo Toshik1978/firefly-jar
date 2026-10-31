@@ -120,6 +120,16 @@ chmod 600 /etc/firefly-jar/firefly.token
 A secret file with group or other permission bits still works, but `firefly-jar` logs a warning
 naming the file every time it reads it.
 
+### Telegram topic and silent delivery
+
+To post the digest into a forum topic, set `notify.telegram.thread_id` to the topic's id (for example
+`42`). To deliver it without a notification sound, set `notify.telegram.silent: true`. Both are optional and
+independent; leave them unset and the digest goes to General with a sound, as before.
+
+If Telegram reports that the topic was not found, `firefly-jar` resends that message to General, logs a WARN
+(`telegram topic not found, sent to general`), and tries the topic again on the next run. A closed topic is not
+a fallback case: it fails like any other send error.
+
 ## Walkthroughs
 
 ### Connect a bank: `auth <bank>`
