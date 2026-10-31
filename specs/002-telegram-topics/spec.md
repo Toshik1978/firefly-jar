@@ -202,5 +202,5 @@ status.
   fallback succeeded still exits by today's rules (0 or 1 by result). The warning makes it non-quiet, which is
   intended.
 - Validation is strict by design (constitution VI), so an invalid topic id fails the run instead of falling back
-  to General. The linux-config cutover accepted this difference from its shared contract.
+  to General. The owner accepted this difference.
 - The release that carries this feature is the next minor version. Tagging is the owner's act.

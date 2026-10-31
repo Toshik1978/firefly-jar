@@ -32,6 +32,6 @@
 ## Notes
 
 - The feature is a delivery-channel option, so the spec names Telegram, its topic and silent concepts, and the two
-  config keys. These are the user-facing contract (agreed with the linux-config cutover), not implementation
+  config keys. These are the user-facing contract (agreed with the owner), not implementation
   choices. No code structure, library or wire format is specified.
 - FR numbers start at 101 so they do not collide with `001-missing-tx-reminder`'s FR-001…FR-0xx.

@@ -116,6 +116,10 @@ func (s *PrivacySuite) TestSuccessfulDeliveryCarriesTheDescriptionButNeverASecre
 	s.Contains(telegramBodies, privacyDescription, "the digest delivered to Telegram must name the missing transaction")
 	s.Contains(emailData, privacyDescription, "the digest delivered by email must name the missing transaction")
 	s.Contains(telegramBodies, checkHeading, "the masked IBAN may reach a delivered digest")
+
+	// FR-103: a config without thread_id/silent sends the request it always did.
+	s.NotContains(telegramBodies, "message_thread_id", "an unset thread_id must not reach the request")
+	s.NotContains(telegramBodies, "disable_notification", "an unset silent must not reach the request")
 }
 
 // TestTelegramRequestCarriesConfiguredThreadAndSilent covers T003 end to end: thread_id and
