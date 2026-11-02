@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Weekly, against main with no commit: mise installs the newest Go patch and
+  # CI runs golangci-lint `latest`, so main can go red without a change here.
+  # A Go patch or a linter release adds a finding, and without this run the
+  # first job to notice is whichever PR happens to come next (usually a
+  # Dependabot one), which then fails for a reason that is not its own.
+  schedule:
+    - cron: '32 4 * * 1'
 
 jobs:
   check:
