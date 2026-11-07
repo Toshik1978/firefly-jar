@@ -3,6 +3,9 @@ name: Commit Lint
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   commit-lint:
     runs-on: ubuntu-latest
