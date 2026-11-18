@@ -1,0 +1,11 @@
+# gitleaks configuration: the default rules plus narrow allowlists for known
+# false positives (exact paths, never a broad directory).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Throwaway Enable Banking test keys used by the config loader tests; not real credentials"
+paths = [
+  '''^testdata/config/secrets/enablebanking\.pem$''',
+  '''^testdata/config/secrets/enablebanking_pkcs1\.pem$''',
+]
